@@ -11,6 +11,7 @@ from models.model_base import ModelBase
 from protos import gap_model_pb2
 
 from core import utils
+from core import plotlib
 from core.standard_fields import OperationNames
 from core.standard_fields import InputDataFields
 from core.standard_fields import GAPVariableScopes
@@ -469,24 +470,22 @@ class Model(ModelBase):
     }
     return predictions
 
-  def visualize(self, image, heat_map):
+  def visualize(self, image, saliency, 
+      interpolation=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
     """Visualizes images to tensorboard.
 
     Args:
       image: a [batch, height, width, channels] float tensor, in [0, 255].
-      heat_map: a [batch, feature_height, feature_width] float tensor.
+      saliency: a [batch, feature_height, feature_width] float tensor.
     """
     (batch, height, width, channels) = utils.get_tensor_shape(image)
 
     image = image / 255.0
-    min_v = tf.reduce_min(heat_map, axis=[1, 2], keepdims=True)
-    max_v = tf.reduce_max(heat_map, axis=[1, 2], keepdims=True)
+    heat_map = plotlib.convert_to_heatmap(saliency, normalize=True)
+    heat_map = tf.image.resize_images(
+        heat_map, [height, width], interpolation)
 
-    heat_map = (heat_map - min_v) / (_SMALL_NUMBER + max_v - min_v)
-
-    heat_map = tf.stack([heat_map, heat_map, heat_map], axis=3)
-    heat_map = tf.image.resize_images(heat_map, [height, width],
-        tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    heat_map = plotlib.gaussian_filter(heat_map, ksize=32)
 
     image = tf.concat([image, heat_map], axis=2)
     tf.summary.image("images", image, max_outputs=10)

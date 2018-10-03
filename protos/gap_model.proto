@@ -1,0 +1,55 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+
+
+message GAPModel {
+  extend Model {
+    optional GAPModel ext = 1001;
+  }
+
+  // Common depth of the both modalities.
+  optional int32 common_dimensions = 1 [default = 300];
+
+  // CNN network backbone.
+  optional string cnn_name = 2 [default = 'mobilenet_v2'];
+
+  // If true, also traing CNN end-to-end.
+  optional bool cnn_trainable = 3 [default = false];
+
+  // Weight decay of the CNN model.
+  optional float cnn_weight_decay = 4 [default = 1e-4];
+
+  // Feature map to use.
+  optional string cnn_feature_map = 5 [default = 'layer_18/output'];
+
+  // Dropout rate of the CNN network.
+  optional float cnn_dropout_keep_prob = 6 [default = 1.0];
+
+  // Path to the pre-trained CNN model.
+  optional string cnn_checkpoint = 7;
+
+  // Path to the vocabulary file.
+  optional string vocabulary_file = 11;
+
+  // Path to the vocabulary weights file.
+  optional string vocabulary_weights_file = 12;
+
+  // Dropout rate.
+  optional float dropout_keep_prob = 21 [default = 1.0];
+
+  // If true, use the saliency score to weigh image / text feature.
+  optional bool use_saliency_score = 23 [default = false];
+
+  // Margin of the triplet loss.
+  optional float triplet_loss_margin = 26 [default = 0.1];
+
+  // If true, use the semihard negatives, otherwise use the hardest negatives.
+  optional bool triplet_loss_use_semihard = 27 [default = false];
+
+  // Weight of the image regularization loss.
+  optional float image_regularizer_weight = 28 [default = 0.0];
+
+  // Weight of the text regularization loss.
+  optional float text_regularizer_weight = 29 [default = 0.0];
+}

@@ -1,0 +1,36 @@
+syntax = "proto2";
+
+message Reader {
+  // Pattern of the input files.
+  optional string input_pattern = 1;
+
+  // Cycle length of interleave call.
+  optional int32 interleave_cycle_length = 2 [default = 2];
+
+  // If True, repeat the dataset and shuffle the batch.
+  optional bool is_training = 4 [default = false];
+
+  // Shuffle buffer size.
+  optional int32 shuffle_buffer_size = 5 [default = 1000];
+
+  // Number of parallel calls.
+  optional int32 map_num_parallel_calls = 6 [default = 1];
+
+  // Prefetch buffer size.
+  optional int32 prefetch_buffer_size = 7 [default = 200];
+
+  // Batch size.
+  optional int32 batch_size = 8 [default = 32];
+
+  // Height of the resized image.
+  optional int32 image_height = 11 [default = 224];
+
+  // Width of the resized image.
+  optional int32 image_width = 12 [default = 224];
+
+  // Image channels.
+  optional int32 image_channels = 13 [default = 3];
+
+  // Maximum length of the captions.
+  optional int32 max_caption_length = 14 [default = 20];
+}

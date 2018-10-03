@@ -1,0 +1,76 @@
+syntax = "proto2";
+
+import "protos/reader.proto";
+import "protos/model.proto";
+import "protos/optimizer.proto";
+
+message Pipeline {
+  // Train reader.
+  optional Reader train_reader = 1;
+
+  // Eval reader.
+  optional Reader eval_reader = 2;
+
+  // Model config.
+  optional Model model = 3;
+
+  // Path to the model directory.
+  optional string model_dir = 4;
+
+  // Train config.
+  optional TrainConfig train_config = 5;
+
+  // Eval config
+  optional EvalConfig eval_config = 6;
+}
+
+message EvalConfig {
+  // Positive number of steps for which to evaluate model. if `None`, evaluate
+  // util `input_fn` raises an end-of-input exception.
+  optional int32 steps = 1;
+
+  // Start evaluating after waiting for this many seconds.
+  optional int32 start_delay_secs = 2 [default = 60];
+
+  // Do not re-evaluate unless the last evaluation was started at least this
+  // many seconds ago.
+  optional int32 throttle_secs = 3 [default = 120];
+}
+
+message TrainConfig {
+  // Positive number of total steps for which to train model.
+  optional int32 max_steps = 1;
+
+  // Optimizer to use.
+  optional Optimizer optimizer = 2;
+
+  // Learning rate.
+  optional float learning_rate = 3;
+
+  // Save summaries every this many steps.
+  optional int32 save_summary_steps = 4 [default = 2000];
+
+  // Save checkpoints every this many steps.
+  optional int32 save_checkpoints_steps = 5 [default = 2000];
+
+  // The maximum number of recent checkpoint files to keep.
+  optional int32 keep_checkpoint_max = 6 [default = 5];
+
+  // The frequency, in number of global steps, that the global step/sec and the
+  // loss will be logged during training.
+  optional int32 log_step_count_steps = 7 [default = 2000];
+
+//  // If true, use moving average of the variables.
+//  optional bool moving_average = 15 [ default = false ];
+//
+//  // Gradient multipliers.
+//  repeated GradientMultiplier gradient_multiplier = 16;
+}
+
+message GradientMultiplier {
+  // Variable scope that the multiplier is applied.
+  optional string scope = 1;
+
+  // A float number denoting the multiplier.
+  optional float multiplier = 2;
+}

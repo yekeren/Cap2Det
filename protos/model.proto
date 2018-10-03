@@ -1,0 +1,5 @@
+syntax = "proto2";
+
+message Model {
+  extensions 1000 to max;
+}

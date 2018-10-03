@@ -1,0 +1,35 @@
+syntax = "proto2";
+
+message Optimizer {
+  oneof optimizer {
+    GradientDescentOptimizer sgd = 1;
+    AdagradOptimizer adagrad = 2;
+    AdamOptimizer adam = 3;
+    RMSPropOptimizer rmsprop = 4;
+  }
+}
+
+message GradientDescentOptimizer {
+  optional bool use_locking = 1 [default = false];
+}
+
+message AdagradOptimizer {
+  optional float initial_accumulator_value = 1 [default = 0.1];
+  optional bool use_locking = 2 [default = false];
+}
+
+message AdamOptimizer {
+  optional float beta1 = 1 [default = 0.9];
+  optional float beta2 = 2 [default = 0.999];
+  optional float epsilon = 3 [default = 1e-08 ];
+  optional bool use_locking = 4 [default = false];
+}
+
+message RMSPropOptimizer {
+  optional float decay = 1 [ default = 0.9 ];
+  optional float momentum = 2 [ default = 0.0 ];
+  optional float epsilon = 3 [default = 1e-10];
+  optional bool use_locking = 4 [default = false];
+  optional bool centered = 5 [default = false];
+}
+

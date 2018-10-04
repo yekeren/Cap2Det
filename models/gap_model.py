@@ -16,6 +16,7 @@ from core.standard_fields import OperationNames
 from core.standard_fields import InputDataFields
 from core.standard_fields import GAPVariableScopes
 from core.standard_fields import GAPPredictions
+from core.standard_fields import GAPPredictionTasks
 from models import utils as model_utils
 
 slim = tf.contrib.slim
@@ -109,7 +110,7 @@ class Model(ModelBase):
     scaffold = tf.train.Scaffold(init_fn=_init_fn)
     return scaffold
 
-  def encode_images(self, 
+  def _encode_images(self, 
       image, 
       cnn_name="mobilenet_v2", 
       cnn_trainable=False,
@@ -178,7 +179,7 @@ class Model(ModelBase):
 
     return feature_map
 
-  def read_vocabulary(self, filename):
+  def _read_vocabulary(self, filename):
     """Reads vocabulary list from file.
 
     Args:
@@ -191,7 +192,7 @@ class Model(ModelBase):
       vocabulary_list = [word.strip('\n') for word in fid.readlines()]
     return vocabulary_list
 
-  def encode_captions(self, 
+  def _encode_captions(self, 
       caption_strings, 
       vocabulary_list=None,
       common_dimensions=300,
@@ -246,7 +247,7 @@ class Model(ModelBase):
 
     return text_feature
 
-  def calc_pairwise_similarity(self, 
+  def _calc_pairwise_similarity(self, 
       image_feature, text_feature, dropout_keep_prob=1.0, is_training=False):
 
     """Computes the pairwise dot-product similarity between image and caption.
@@ -275,7 +276,7 @@ class Model(ModelBase):
         is_training=is_training)
     return tf.reduce_sum(dot_product, axis=-1)
 
-  def calc_saliency_score(self, inputs, 
+  def _calc_saliency_score(self, inputs, 
       is_training=False, use_batch_norm=True, scope="calc_saliency_score"):
 
     """Calculates saliency score.
@@ -310,7 +311,59 @@ class Model(ModelBase):
         scope=scope)
     return tf.squeeze(saliency_score, axis=-1)
 
-  def build_prediction(self, examples, **kwargs):
+  def _predict_image_saliency(self, examples):
+    """Builds tf graph for prediction.
+
+    Args:
+      examples: dict of input tensors keyed by name.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+    raise ValueError("The function is not tested.")
+
+    options = self._model_proto
+    is_training = self._is_training
+
+    if not options.use_saliency_score:
+      raise ValueError("The flag of `use_saliency_score` should be set.")
+
+    image = examples[InputDataFields.image]
+
+    # Extract image feature, shape = 
+    #   [batch, feature_height * feature_width, common_dimensions].
+
+    image_feature = self._encode_images(image,
+        cnn_name=options.cnn_name,
+        cnn_trainable=options.cnn_trainable,
+        cnn_weight_decay=options.cnn_weight_decay,
+        cnn_feature_map=options.cnn_feature_map,
+        cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
+        cnn_checkpoint=options.cnn_checkpoint,
+        common_dimensions=options.common_dimensions,
+        scope=GAPVariableScopes.image_proj,
+        is_training=is_training)
+
+    (batch, feature_height, feature_width, common_dimensions
+     ) = utils.get_tensor_shape(image_feature)
+    image_feature = tf.reshape(image_feature, [batch, -1, common_dimensions])
+
+    # Predict saliency score.
+    #   image_saliency shape = [batch, num_regions].
+    #   caption_saliency shape = [num_captions_in_batch, max_caption_length].
+
+    image_saliency = self._calc_saliency_score(
+        image_feature, 
+        is_training=is_training,
+        use_batch_norm=True,
+        scope=GAPVariableScopes.image_saliency)
+
+    predictions = {
+      GAPPredictions.image_saliency: image_saliency,
+    }
+    return predictions
+
+  def _predict_similarity(self, examples):
     """Builds tf graph for prediction.
 
     Args:
@@ -339,7 +392,7 @@ class Model(ModelBase):
     #   [batch, feature_height * feature_width, common_dimensions].
 
     with tf.name_scope(OperationNames.image_model):
-      image_feature = self.encode_images(image,
+      image_feature = self._encode_images(image,
           cnn_name=options.cnn_name,
           cnn_trainable=options.cnn_trainable,
           cnn_weight_decay=options.cnn_weight_decay,
@@ -357,11 +410,11 @@ class Model(ModelBase):
     # Extract caption feature, shape =
     #   [num_captions_in_batch, max_caption_length, common_dimensions].
 
-    vocabulary_list = self.read_vocabulary(options.vocabulary_file)
+    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
     tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
 
     with tf.name_scope(OperationNames.text_model):
-      caption_feature = self.encode_captions(
+      caption_feature = self._encode_captions(
           caption_strings_gathered,
           vocabulary_list=vocabulary_list,
           common_dimensions=options.common_dimensions,
@@ -377,7 +430,7 @@ class Model(ModelBase):
 
       # Compute dot-product similarity.
 
-      similarity = self.calc_pairwise_similarity(
+      similarity = self._calc_pairwise_similarity(
           image_feature=tf.nn.l2_normalize(image_feature, axis=-1),
           text_feature=tf.nn.l2_normalize(caption_feature, axis=-1),
           dropout_keep_prob=options.dropout_keep_prob,
@@ -393,12 +446,12 @@ class Model(ModelBase):
         #   image_saliency shape = [batch, num_regions].
         #   caption_saliency shape = [num_captions_in_batch, max_caption_length].
 
-        image_saliency = self.calc_saliency_score(
+        image_saliency = self._calc_saliency_score(
             image_feature, 
             is_training=is_training,
             use_batch_norm=True,
             scope=GAPVariableScopes.image_saliency)
-        caption_saliency = self.calc_saliency_score(
+        caption_saliency = self._calc_saliency_score(
             caption_feature,
             is_training=is_training,
             use_batch_norm=True,
@@ -439,7 +492,7 @@ class Model(ModelBase):
               tf.reduce_mean(
                 utils.masked_minimum(caption_attention, word_mask, dim=1)))
 
-        saliency_mask = self.calc_pairwise_similarity(
+        saliency_mask = self._calc_pairwise_similarity(
             image_feature=tf.expand_dims(image_attention, -1),
             text_feature=tf.expand_dims(caption_attention, -1),
             dropout_keep_prob=options.dropout_keep_prob,
@@ -469,6 +522,26 @@ class Model(ModelBase):
       GAPPredictions.similarity: similarity,
     }
     return predictions
+
+  def build_prediction(self, examples, 
+      prediction_task=GAPPredictionTasks.similarity, **kwargs):
+    """Builds tf graph for prediction.
+
+    Args:
+      examples: dict of input tensors keyed by name.
+      prediction_task: the specific prediction task.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+
+    if prediction_task == GAPPredictionTasks.similarity:
+      return self._predict_similarity(examples)
+
+    elif prediction_task == GAPPredictionTasks.image_saliency:
+      return self._predict_image_saliency(examples)
+
+    raise ValueError("Invalid prediction task %s" % (prediction_task))
 
   def visualize(self, image, saliency, 
       interpolation=tf.image.ResizeMethod.NEAREST_NEIGHBOR):

@@ -15,7 +15,7 @@ flags = tf.app.flags
 tf.logging.set_verbosity(tf.logging.INFO)
 
 flags.DEFINE_string('pipeline_proto', 
-    'configs/gap448_lr0.005_reg_v5.pbtxt', 
+    'configs/224.pbtxt', 
     'Path to the pipeline proto file.')
 
 FLAGS = flags.FLAGS

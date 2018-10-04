@@ -49,6 +49,12 @@ class InputDataFields(object):
   caption_lengths = "caption_lengths"
 
 
+class GAPPredictionTasks(object):
+  """Prediction tasks of the GAP model."""
+  similarity = "similarity"
+  image_saliency = "image_saliency"
+
+
 class GAPVariableScopes(object):
   """Variable scopes used in GAP model."""
   cnn = "CNN"
@@ -60,14 +66,9 @@ class GAPVariableScopes(object):
 
 class GAPPredictions(object):
   """Predictions in the GAP model."""
-  image = "image"
   image_id = "image_id"
-  image_feature = "image_feature"
-  image_saliency_score = "image_saliency_score"
-
   image_ids_gathered = "image_ids_gathered"
-  caption_features_gathered = "caption_features_gathered"
-  caption_lengths_gathered = "caption_lengths_gathered"
-  caption_saliency_scores_gathered = "caption_saliency_scores_gathered"
-
   similarity = "similarity"
+
+  image = "image"
+  image_saliency = "image_saliency"

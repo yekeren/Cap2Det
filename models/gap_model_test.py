@@ -24,7 +24,7 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 224, 224, 3])
-    feature_map = model.encode_images(image, 
+    feature_map = model._encode_images(image, 
         cnn_name="mobilenet_v2", 
         cnn_weight_decay=1e-4,
         cnn_feature_map="layer_18/output",
@@ -39,7 +39,7 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 448, 448, 3])
-    feature_map = model.encode_images(image, 
+    feature_map = model._encode_images(image, 
         cnn_name="mobilenet_v2", 
         cnn_weight_decay=1e-4,
         cnn_feature_map="layer_18/output",
@@ -58,7 +58,7 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     caption_strings = tf.fill([32, 20], "")
-    caption_feature = model.encode_captions(
+    caption_feature = model._encode_captions(
         caption_strings=caption_strings,
         vocabulary_list=["one", "two", "three", "four"],
         common_dimensions=50,
@@ -76,7 +76,7 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     caption_strings = tf.fill([32, 20], "")
-    caption_feature = model.encode_captions(
+    caption_feature = model._encode_captions(
         caption_strings=caption_strings,
         vocabulary_list=["one", "two", "three"],
         common_dimensions=200,
@@ -98,48 +98,52 @@ class GAPModelTest(tf.test.TestCase):
     with g.as_default():
       image_feature = tf.placeholder(tf.float32, shape=[None, None, None])
       text_feature = tf.placeholder(tf.float32, shape=[None, None, None])
-      caption_lengths = tf.placeholder(tf.int32, shape=[None])
 
-      similarity = model.calc_pairwise_similarity(
-          image_feature, text_feature, caption_lengths=caption_lengths)
+      similarity = model._calc_pairwise_similarity(image_feature, text_feature)
       
       with self.test_session() as sess:
 
-        # batch=2, num_regions=3, num_captions=2, max_caption_length=3,
-        # common_dimensions=1, caption_lenths=[3, 3].
+        # batch=2, num_regions=3, num_captions=2, max_caption_length=3.
 
         similarity_value = sess.run(similarity, feed_dict={
             image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
             text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
-            caption_lengths: [3, 3]})
+            })
 
-        self.assertAllClose(similarity_value, [
-            [(0.1 + 0.2 + 0.3) / 9.0, (0.4 + 0.5 + 0.6) / 9.0],
-            [(0.1 + 0.2 + 0.3) * 4 / 9.0, (0.4 + 0.5 + 0.6) * 4 / 9.0]])
+        self.assertAllClose(similarity_value, 
+            [[
+            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]], 
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+            ], [
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 
+            [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]], 
+            [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]]],
+            ])
 
-        # batch=2, num_regions=3, num_captions=2, max_caption_length=3,
-        # common_dimensions=1, caption_lenths=[1, 3].
+        # # batch=2, num_regions=3, num_captions=2, max_caption_length=3,
+        # # common_dimensions=1, caption_lenths=[1, 3].
 
-        similarity_value = sess.run(similarity, feed_dict={
-            image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
-            text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
-            caption_lengths: [1, 3]})
+        # similarity_value = sess.run(similarity, feed_dict={
+        #     image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
+        #     text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
+        #     caption_lengths: [1, 3]})
 
-        self.assertAllClose(similarity_value, [
-            [(0.1) / 3.0, (0.4 + 0.5 + 0.6) / 9.0],
-            [(0.1) * 4 / 3.0, (0.4 + 0.5 + 0.6) * 4 / 9.0]])
+        # self.assertAllClose(similarity_value, [
+        #     [(0.1) / 3.0, (0.4 + 0.5 + 0.6) / 9.0],
+        #     [(0.1) * 4 / 3.0, (0.4 + 0.5 + 0.6) * 4 / 9.0]])
 
-        # batch=2, num_regions=3, num_captions=2, max_caption_length=3,
-        # common_dimensions=1, caption_lenths=[3, 1].
+        # # batch=2, num_regions=3, num_captions=2, max_caption_length=3,
+        # # common_dimensions=1, caption_lenths=[3, 1].
 
-        similarity_value = sess.run(similarity, feed_dict={
-            image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
-            text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
-            caption_lengths: [3, 1]})
+        # similarity_value = sess.run(similarity, feed_dict={
+        #     image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
+        #     text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
+        #     caption_lengths: [3, 1]})
 
-        self.assertAllClose(similarity_value, [
-            [(0.1 + 0.2 + 0.3) / 9.0, (0.4) / 3.0],
-            [(0.1 + 0.2 + 0.3) * 4 / 9.0, (0.4) * 4 / 3.0]])
+        # self.assertAllClose(similarity_value, [
+        #     [(0.1 + 0.2 + 0.3) / 9.0, (0.4) / 3.0],
+        #     [(0.1 + 0.2 + 0.3) * 4 / 9.0, (0.4) * 4 / 3.0]])
 
 
 

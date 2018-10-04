@@ -320,8 +320,6 @@ class Model(ModelBase):
     Returns:
       predictions: dict of prediction results keyed by name.
     """
-    raise ValueError("The function is not tested.")
-
     options = self._model_proto
     is_training = self._is_training
 
@@ -357,11 +355,10 @@ class Model(ModelBase):
         is_training=is_training,
         use_batch_norm=True,
         scope=GAPVariableScopes.image_saliency)
-
-    predictions = {
-      GAPPredictions.image_saliency: image_saliency,
+    return { 
+      GAPPredictions.image_saliency: tf.reshape(
+          image_saliency, [-1, feature_height, feature_width]),
     }
-    return predictions
 
   def _predict_similarity(self, examples):
     """Builds tf graph for prediction.
@@ -554,13 +551,13 @@ class Model(ModelBase):
     (batch, height, width, channels) = utils.get_tensor_shape(image)
 
     image = image / 255.0
-    heat_map = plotlib.convert_to_heatmap(saliency, normalize=True)
-    heat_map = tf.image.resize_images(
-        heat_map, [height, width], interpolation)
+    heatmap = plotlib.convert_to_heatmap(saliency, normalize=True)
+    heatmap = tf.image.resize_images(
+        heatmap, [height, width], interpolation)
 
-    heat_map = plotlib.gaussian_filter(heat_map, ksize=32)
+    heatmap = plotlib.gaussian_filter(heatmap, ksize=32)
 
-    image = tf.concat([image, heat_map], axis=2)
+    image = tf.concat([image, heatmap], axis=2)
     tf.summary.image("images", image, max_outputs=10)
 
   def build_loss(self, predictions, **kwargs):

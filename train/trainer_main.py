@@ -21,7 +21,7 @@ flags.DEFINE_string('pipeline_proto',
 FLAGS = flags.FLAGS
 
 
-def load_pipeline_proto(filename):
+def _load_pipeline_proto(filename):
   """Loads pipeline proto from file.
 
   Args:
@@ -37,7 +37,7 @@ def load_pipeline_proto(filename):
 
 
 def main(_):
-  pipeline_proto = load_pipeline_proto(FLAGS.pipeline_proto)
+  pipeline_proto = _load_pipeline_proto(FLAGS.pipeline_proto)
   tf.logging.info("Pipeline configure: %s", '=' * 128)
   tf.logging.info(pipeline_proto)
 

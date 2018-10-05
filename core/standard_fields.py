@@ -53,6 +53,7 @@ class GAPPredictionTasks(object):
   """Prediction tasks of the GAP model."""
   similarity = "similarity"
   image_saliency = "image_saliency"
+  word_saliency = "word_saliency"
 
 
 class GAPVariableScopes(object):
@@ -70,5 +71,6 @@ class GAPPredictions(object):
   image_ids_gathered = "image_ids_gathered"
   similarity = "similarity"
 
-  image = "image"
   image_saliency = "image_saliency"
+  word_saliency = "image_saliency"
+  vocabulary = "vocabulary"

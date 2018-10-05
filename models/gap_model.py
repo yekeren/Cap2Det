@@ -360,6 +360,49 @@ class Model(ModelBase):
           image_saliency, [-1, feature_height, feature_width]),
     }
 
+  def _predict_word_saliency(self, examples):
+    """Builds tf graph for prediction.
+
+    Args:
+      examples: dict of input tensors keyed by name.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+    options = self._model_proto
+    is_training = self._is_training
+
+    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
+    tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
+
+    scope = GAPVariableScopes.word_embedding
+    if scope[-len("_embedding"):] != "_embedding":
+      raise ValueError("Invalid variable scope name %s.", scope)
+    scope_prefix = scope[:-len("_embedding")]
+
+    (categorical_column
+     ) = tf.feature_column.categorical_column_with_vocabulary_list(
+       key=scope_prefix,
+       vocabulary_list=vocabulary_list,
+       dtype=tf.string,
+       num_oov_buckets=1)
+    embedding_column = tf.feature_column.embedding_column(
+        categorical_column, dimension=options.common_dimensions)
+
+    word_embedding = tf.feature_column.input_layer(
+        {scope_prefix: vocabulary_list},
+        feature_columns=[embedding_column])
+    word_saliency = self._calc_saliency_score(
+        word_embedding,
+        is_training=is_training,
+        use_batch_norm=True,
+        scope=GAPVariableScopes.word_saliency)
+
+    return { 
+      GAPPredictions.vocabulary: tf.constant(vocabulary_list),
+      GAPPredictions.word_saliency: word_saliency,
+    }
+
   def _predict_similarity(self, examples):
     """Builds tf graph for prediction.
 
@@ -538,6 +581,9 @@ class Model(ModelBase):
     elif prediction_task == GAPPredictionTasks.image_saliency:
       return self._predict_image_saliency(examples)
 
+    elif prediction_task == GAPPredictionTasks.word_saliency:
+      return self._predict_word_saliency(examples)
+
     raise ValueError("Invalid prediction task %s" % (prediction_task))
 
   def visualize(self, image, saliency, 
@@ -557,7 +603,7 @@ class Model(ModelBase):
 
     heatmap = plotlib.gaussian_filter(heatmap, ksize=32)
 
-    image = tf.concat([image, heatmap], axis=2)
+    image = tf.maximum(0.0, tf.concat([image, heatmap], axis=2))
     tf.summary.image("images", image, max_outputs=10)
 
   def build_loss(self, predictions, **kwargs):
@@ -629,6 +675,8 @@ class Model(ModelBase):
         tf.reduce_sum(losses), _SMALL_NUMBER + num_loss_examples,
         name="triplet_loss")
 
+    tf.summary.scalar('loss/num_loss_examples', num_loss_examples)
+    tf.summary.scalar('loss/triplet_loss', loss)
     return {'triplet_loss': loss}
 
   def build_evaluation(self, predictions, **kwargs):

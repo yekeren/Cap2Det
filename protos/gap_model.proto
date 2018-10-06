@@ -1,6 +1,7 @@
 syntax = "proto2";
 
 import "protos/model.proto";
+import "protos/hyperparams.proto";
 
 
 message GAPModel {
@@ -52,4 +53,13 @@ message GAPModel {
 
   // Weight of the text regularization loss.
   optional float text_regularizer_weight = 29 [default = 0.0];
+
+  // Hyperparams for image projection layer.
+  optional Hyperparams image_proj_hyperparams = 31;
+
+  // Hyperparams for image saliency layer.
+  optional Hyperparams image_saliency_hyperparams = 32;
+
+  // Hyperparams for word saliency layer.
+  optional Hyperparams word_saliency_hyperparams = 33;
 }

@@ -14,6 +14,9 @@ flags = tf.app.flags
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+flags.DEFINE_string('type', 
+    '', 'A message string passed from command-line.')
+
 flags.DEFINE_string('pipeline_proto', 
     'configs/224.pbtxt', 
     'Path to the pipeline proto file.')

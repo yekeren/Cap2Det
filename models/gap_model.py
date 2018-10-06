@@ -17,6 +17,7 @@ from core.standard_fields import InputDataFields
 from core.standard_fields import GAPVariableScopes
 from core.standard_fields import GAPPredictions
 from core.standard_fields import GAPPredictionTasks
+from core.training_utils import build_hyperparams
 from models import utils as model_utils
 
 slim = tf.contrib.slim
@@ -120,6 +121,7 @@ class Model(ModelBase):
       cnn_checkpoint=None,
       common_dimensions=300,
       scope="image_proj",
+      hyperparams=None,
       is_training=False):
 
     """Builds image model.
@@ -135,6 +137,8 @@ class Model(ModelBase):
       cnn_checkpoint: path to the pre-trained CNN model.
       common_dimensions: depth of the image embedding.
       scope: variable scope of the projection layer.
+      hyperparams: an instance of hyperparams_pb2.Hyperparams, used for the
+        conv2d projection layer.
       is_training: if True, training graph is built.
 
     Returns:
@@ -161,14 +165,14 @@ class Model(ModelBase):
 
     # Add additional projection layer.
 
-    with tf.variable_scope(scope):
-      feature_map = tf.contrib.layers.conv2d(
-          inputs=feature_map,
-          num_outputs=common_dimensions,
-          kernel_size=[1, 1],
-          activation_fn=None,
-          weights_initializer=tf.truncated_normal_initializer(stddev=_STDDEV))
-
+    with slim.arg_scope(build_hyperparams(hyperparams, is_training)):
+      with tf.variable_scope(scope):
+        feature_map = tf.contrib.layers.conv2d(
+            inputs=feature_map,
+            num_outputs=common_dimensions,
+            kernel_size=[1, 1],
+            activation_fn=None)
+            
     # Load pre-trained model from checkpoint.
 
     if cnn_checkpoint is None:
@@ -276,39 +280,24 @@ class Model(ModelBase):
         is_training=is_training)
     return tf.reduce_sum(dot_product, axis=-1)
 
-  def _calc_saliency_score(self, inputs, 
-      is_training=False, use_batch_norm=True, scope="calc_saliency_score"):
+  def _calc_saliency_score(self, 
+      inputs, scope, hyperparams=None, is_training=False):
 
     """Calculates saliency score.
 
     Args:
       inputs: input feature, a [..., feature_dimensions] float tensor.
+      scope: variable scope.
+      hyperparams: an instance of hyperparams_pb2.Hyperparams, used for the
       is_training: if True, build training graph.
-      scope: optional scope for variable scope.
 
     Returns:
       saliency_score: saliency score, a [..., 1] float tensor keeping the
         feature dimension.
     """
-    normalizer_fn = None
-    if use_batch_norm:
-      normalizer_fn = tf.contrib.layers.batch_norm
-
-    normalizer_params = {
-      "decay": 0.995,
-      "center": True,
-      "scale": True,
-      "epsilon": 0.001,
-      "is_training": is_training,
-    }
-    saliency_score = tf.contrib.layers.fully_connected(
-        inputs, 
-        num_outputs=1, 
-        activation_fn=None,
-        normalizer_fn=normalizer_fn,
-        normalizer_params=normalizer_params,
-        weights_initializer=tf.truncated_normal_initializer(stddev=_STDDEV),
-        scope=scope)
+    with slim.arg_scope(build_hyperparams(hyperparams, is_training)):
+      saliency_score = tf.contrib.layers.fully_connected(
+          inputs, num_outputs=1, activation_fn=None, scope=scope)
     return tf.squeeze(saliency_score, axis=-1)
 
   def _predict_image_saliency(self, examples):
@@ -340,6 +329,7 @@ class Model(ModelBase):
         cnn_checkpoint=options.cnn_checkpoint,
         common_dimensions=options.common_dimensions,
         scope=GAPVariableScopes.image_proj,
+        hyperparams=options.image_proj_hyperparams,
         is_training=is_training)
 
     (batch, feature_height, feature_width, common_dimensions
@@ -352,9 +342,9 @@ class Model(ModelBase):
 
     image_saliency = self._calc_saliency_score(
         image_feature, 
-        is_training=is_training,
-        use_batch_norm=True,
-        scope=GAPVariableScopes.image_saliency)
+        scope=GAPVariableScopes.image_saliency,
+        hyperparams=options.image_saliency_hyperparams,
+        is_training=is_training)
     return { 
       GAPPredictions.image_saliency: tf.reshape(
           image_saliency, [-1, feature_height, feature_width]),
@@ -394,9 +384,9 @@ class Model(ModelBase):
         feature_columns=[embedding_column])
     word_saliency = self._calc_saliency_score(
         word_embedding,
-        is_training=is_training,
-        use_batch_norm=True,
-        scope=GAPVariableScopes.word_saliency)
+        scope=GAPVariableScopes.word_saliency,
+        hyperparams=options.word_saliency_hyperparams,
+        is_training=is_training)
 
     return { 
       GAPPredictions.vocabulary: tf.constant(vocabulary_list),
@@ -441,6 +431,7 @@ class Model(ModelBase):
           cnn_checkpoint=options.cnn_checkpoint,
           common_dimensions=options.common_dimensions,
           scope=GAPVariableScopes.image_proj,
+          hyperparams=options.image_proj_hyperparams,
           is_training=is_training)
 
       (batch, feature_height, feature_width, common_dimensions
@@ -488,14 +479,14 @@ class Model(ModelBase):
 
         image_saliency = self._calc_saliency_score(
             image_feature, 
-            is_training=is_training,
-            use_batch_norm=True,
-            scope=GAPVariableScopes.image_saliency)
+            scope=GAPVariableScopes.image_saliency,
+            hyperparams=options.image_saliency_hyperparams,
+            is_training=is_training)
         caption_saliency = self._calc_saliency_score(
             caption_feature,
-            is_training=is_training,
-            use_batch_norm=True,
-            scope=GAPVariableScopes.word_saliency)
+            scope=GAPVariableScopes.word_saliency,
+            hyperparams=options.word_saliency_hyperparams,
+            is_training=is_training)
 
         # Apply masked attention.
 

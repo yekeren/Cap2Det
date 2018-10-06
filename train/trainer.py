@@ -116,13 +116,21 @@ def create_train_and_evaluate(pipeline_proto):
       start_delay_secs=eval_config.start_delay_secs,
       throttle_secs=eval_config.throttle_secs)
 
+  # Set session config.
+
+  # session_config = tf.ConfigProto()
+  # session_config.allow_soft_placement = True
+  # session_config.gpu_options.allow_growth = True
+  session_config = None
+
   # Create estimator.
+
   model_fn = create_model_fn(pipeline_proto)
 
   run_config = tf.estimator.RunConfig(
       save_summary_steps=train_config.save_summary_steps,
       save_checkpoints_steps=train_config.save_checkpoints_steps,
-      session_config=None,
+      session_config=session_config,
       keep_checkpoint_max=train_config.keep_checkpoint_max,
       log_step_count_steps=train_config.log_step_count_steps)
 

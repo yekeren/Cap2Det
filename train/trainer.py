@@ -14,7 +14,7 @@ from protos import pipeline_pb2
 from core import training_utils
 
 
-def create_model_fn(pipeline_proto):
+def _create_model_fn(pipeline_proto):
   """Creates a callable that build the model.
 
   Args:
@@ -84,6 +84,7 @@ def create_model_fn(pipeline_proto):
 
   return _model_fn
 
+
 def create_train_and_evaluate(pipeline_proto):
   """Creates a callable to train and evaluate.
 
@@ -125,7 +126,7 @@ def create_train_and_evaluate(pipeline_proto):
 
   # Create estimator.
 
-  model_fn = create_model_fn(pipeline_proto)
+  model_fn = _create_model_fn(pipeline_proto)
 
   run_config = tf.estimator.RunConfig(
       save_summary_steps=train_config.save_summary_steps,

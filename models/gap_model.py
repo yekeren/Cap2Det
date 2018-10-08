@@ -119,9 +119,7 @@ class Model(ModelBase):
       cnn_feature_map="layer_18/output",
       cnn_dropout_keep_prob=1.0,
       cnn_checkpoint=None,
-      common_dimensions=300,
-      scope="image_proj",
-      hyperparams=None,
+      cnn_scope="CNN",
       is_training=False):
 
     """Builds image model.
@@ -135,10 +133,6 @@ class Model(ModelBase):
       cnn_feature_map: CNN feature map to be used.
       cnn_dropout_keep_prob: dropout keep probability of the CNN model.
       cnn_checkpoint: path to the pre-trained CNN model.
-      common_dimensions: depth of the image embedding.
-      scope: variable scope of the projection layer.
-      hyperparams: an instance of hyperparams_pb2.Hyperparams, used for the
-        conv2d projection layer.
       is_training: if True, training graph is built.
 
     Returns:
@@ -154,7 +148,7 @@ class Model(ModelBase):
         weight_decay=cnn_weight_decay, 
         is_training=cnn_trainable and is_training)
 
-    with tf.variable_scope(GAPVariableScopes.cnn):
+    with tf.variable_scope(cnn_scope):
       _, end_points = net_fn(image)
     feature_map = end_points[cnn_feature_map]
 
@@ -163,16 +157,6 @@ class Model(ModelBase):
         keep_prob=cnn_dropout_keep_prob, 
         is_training=is_training)
 
-    # Add additional projection layer.
-
-    with slim.arg_scope(build_hyperparams(hyperparams, is_training)):
-      with tf.variable_scope(scope):
-        feature_map = tf.contrib.layers.conv2d(
-            inputs=feature_map,
-            num_outputs=common_dimensions,
-            kernel_size=[1, 1],
-            activation_fn=None)
-            
     # Load pre-trained model from checkpoint.
 
     if cnn_checkpoint is None:
@@ -280,6 +264,32 @@ class Model(ModelBase):
         is_training=is_training)
     return tf.reduce_sum(dot_product, axis=-1)
 
+  def _project_images(self, 
+      feature_map, 
+      common_dimensions=300, 
+      scope="image_proj", 
+      hyperparams=None, 
+      is_training=False):
+    """Adds additional 1x1 conv layer to project image features.
+
+    Args:
+      feature_map: [batch, feature_height, feature_width, feature_depth] float
+        tensor, which is the CNN output.
+      common_dimensions: depth of the image embedding.
+      scope: variable scope of the projection layer.
+      hyperparams: an instance of hyperparams_pb2.Hyperparams, used for the
+        conv2d projection layer.
+      is_training: if True, training graph is built.
+    """
+    with slim.arg_scope(build_hyperparams(hyperparams, is_training)):
+      with tf.variable_scope(scope):
+        feature_map = tf.contrib.layers.conv2d(
+            inputs=feature_map,
+            num_outputs=common_dimensions,
+            kernel_size=[1, 1],
+            activation_fn=None)
+    return feature_map
+
   def _calc_saliency_score(self, 
       inputs, scope, hyperparams=None, is_training=False):
 
@@ -327,6 +337,10 @@ class Model(ModelBase):
         cnn_feature_map=options.cnn_feature_map,
         cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
         cnn_checkpoint=options.cnn_checkpoint,
+        cnn_scope=GAPVariablesScopes.cnn,
+        is_training=is_training)
+
+    image_feature = self._project_images(image_feature, 
         common_dimensions=options.common_dimensions,
         scope=GAPVariableScopes.image_proj,
         hyperparams=options.image_proj_hyperparams,
@@ -405,10 +419,41 @@ class Model(ModelBase):
     options = self._model_proto
     is_training = self._is_training
 
-    (image, image_id, 
+    # Extract CNN feature.
+
+    image = examples[InputDataFields.image]
+    image_feature = self._encode_images(image,
+        cnn_name=options.cnn_name,
+        cnn_trainable=options.cnn_trainable,
+        cnn_weight_decay=options.cnn_weight_decay,
+        cnn_feature_map=options.cnn_feature_map,
+        cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
+        cnn_checkpoint=options.cnn_checkpoint,
+        cnn_scope=GAPVariableScopes.cnn,
+        is_training=is_training)
+    examples[InputDataFields.cnn_feature] = image_feature
+
+    if options.use_fifo_queue:
+
+      # Use additional FIFO queue to batch CNN feature.
+
+      if options.cnn_trainable:
+        raise ValueError("Cannot use FIFO queue since cnn_trainable=True")
+
+      with tf.name_scope(OperationNames.cnn_batch_example):
+        examples = model_utils.fifo_batch_examples(
+            examples, 
+            num_threads=options.fifo_queue_num_threads,
+            capacity=options.fifo_queue_capacity, 
+            batch_size=options.fifo_queue_batch_size)
+
+    # Extracts input data fields.
+
+    (image_id, image, image_feature,
      num_captions, caption_strings, caption_lengths) = (
-       examples[InputDataFields.image], 
        examples[InputDataFields.image_id],
+       examples[InputDataFields.image],
+       examples[InputDataFields.cnn_feature],
        examples[InputDataFields.num_captions],
        examples[InputDataFields.caption_strings],
        examples[InputDataFields.caption_lengths])
@@ -422,13 +467,7 @@ class Model(ModelBase):
     #   [batch, feature_height * feature_width, common_dimensions].
 
     with tf.name_scope(OperationNames.image_model):
-      image_feature = self._encode_images(image,
-          cnn_name=options.cnn_name,
-          cnn_trainable=options.cnn_trainable,
-          cnn_weight_decay=options.cnn_weight_decay,
-          cnn_feature_map=options.cnn_feature_map,
-          cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
-          cnn_checkpoint=options.cnn_checkpoint,
+      image_feature = self._project_images(image_feature, 
           common_dimensions=options.common_dimensions,
           scope=GAPVariableScopes.image_proj,
           hyperparams=options.image_proj_hyperparams,
@@ -494,6 +533,17 @@ class Model(ModelBase):
         caption_attention = utils.masked_softmax(
             caption_saliency, word_mask, dim=-1)
 
+        tf.summary.scalar('loss/image_attention_max', 
+            tf.reduce_mean(tf.reduce_max(image_attention, axis=1)))
+        tf.summary.scalar('loss/image_attention_min', 
+            tf.reduce_mean(tf.reduce_min(image_attention, axis=1)))
+        tf.summary.scalar('loss/caption_attention_max', 
+            tf.reduce_mean(
+              utils.masked_maximum(caption_attention, word_mask, dim=1)))
+        tf.summary.scalar('loss/caption_attention_min', 
+            tf.reduce_mean(
+              utils.masked_minimum(caption_attention, word_mask, dim=1)))
+
         if options.image_regularizer_weight > 0.0:
           log_image_attention = tf.log(
               tf.maximum(image_attention, _SMALL_NUMBER))
@@ -502,10 +552,6 @@ class Model(ModelBase):
               tf.reduce_mean(tf.reduce_sum(log_image_attention, axis=1)))
           tf.losses.add_loss(loss)
           tf.summary.scalar('loss/image_attention_log_loss', loss)
-          tf.summary.scalar('loss/image_attention_max', 
-              tf.reduce_mean(tf.reduce_max(image_attention, axis=1)))
-          tf.summary.scalar('loss/image_attention_min', 
-              tf.reduce_mean(tf.reduce_min(image_attention, axis=1)))
 
         if options.text_regularizer_weight > 0.0:
           log_caption_attention = tf.log(
@@ -516,12 +562,6 @@ class Model(ModelBase):
                 tf.reduce_sum(log_caption_attention * word_mask, axis=1)))
           tf.losses.add_loss(loss)
           tf.summary.scalar('loss/caption_attention_log_loss', loss)
-          tf.summary.scalar('loss/caption_attention_max', 
-              tf.reduce_mean(
-                utils.masked_maximum(caption_attention, word_mask, dim=1)))
-          tf.summary.scalar('loss/caption_attention_min', 
-              tf.reduce_mean(
-                utils.masked_minimum(caption_attention, word_mask, dim=1)))
 
         saliency_mask = self._calc_pairwise_similarity(
             image_feature=tf.expand_dims(image_attention, -1),

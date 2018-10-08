@@ -419,9 +419,16 @@ class Model(ModelBase):
     options = self._model_proto
     is_training = self._is_training
 
-    # Extract CNN feature.
+    # Extracts input data fields.
 
-    image = examples[InputDataFields.image]
+    (image, image_id,
+     num_captions, caption_strings, caption_lengths) = (
+       examples[InputDataFields.image],
+       examples[InputDataFields.image_id],
+       examples[InputDataFields.num_captions],
+       examples[InputDataFields.caption_strings],
+       examples[InputDataFields.caption_lengths])
+
     image_feature = self._encode_images(image,
         cnn_name=options.cnn_name,
         cnn_trainable=options.cnn_trainable,
@@ -431,32 +438,6 @@ class Model(ModelBase):
         cnn_checkpoint=options.cnn_checkpoint,
         cnn_scope=GAPVariableScopes.cnn,
         is_training=is_training)
-    examples[InputDataFields.cnn_feature] = image_feature
-
-    if options.use_fifo_queue:
-
-      # Use additional FIFO queue to batch CNN feature.
-
-      if options.cnn_trainable:
-        raise ValueError("Cannot use FIFO queue since cnn_trainable=True")
-
-      with tf.name_scope(OperationNames.cnn_batch_example):
-        examples = model_utils.fifo_batch_examples(
-            examples, 
-            num_threads=options.fifo_queue_num_threads,
-            capacity=options.fifo_queue_capacity, 
-            batch_size=options.fifo_queue_batch_size)
-
-    # Extracts input data fields.
-
-    (image_id, image, image_feature,
-     num_captions, caption_strings, caption_lengths) = (
-       examples[InputDataFields.image_id],
-       examples[InputDataFields.image],
-       examples[InputDataFields.cnn_feature],
-       examples[InputDataFields.num_captions],
-       examples[InputDataFields.caption_strings],
-       examples[InputDataFields.caption_lengths])
 
     (image_ids_gathered, 
      caption_strings_gathered, 

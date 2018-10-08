@@ -1,0 +1,19 @@
+syntax = "proto2";
+
+message Preprocess {
+  // Random flip.
+  optional float random_flip_left_right_prob = 1 [default = 0.0];
+
+  // Random brightness.
+  optional float random_brightness_prob = 2 [default = 0.0];
+  optional float random_brightness_max_delta = 3 [default = 0.2];
+
+  // Random contrast.
+  optional float random_contrast_prob = 4 [default = 0.0];
+  optional float random_contrast_lower = 5 [default = 0.8];
+  optional float random_contrast_upper = 6 [default = 1.2];
+
+  // Random crop.
+  optional float random_crop_prob = 12 [default =  0.0];
+  optional float random_crop_min_scale = 13 [default = 0.8];
+}

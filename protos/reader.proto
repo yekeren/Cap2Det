@@ -1,5 +1,7 @@
 syntax = "proto2";
 
+import "protos/preprocess.proto";
+
 message Reader {
   // Pattern of the input files.
   optional string input_pattern = 1;
@@ -33,4 +35,7 @@ message Reader {
 
   // Maximum length of the captions.
   optional int32 max_caption_length = 14 [default = 20];
+
+  // Preprocess options.
+  optional Preprocess preprocess_options = 15;
 }

@@ -41,7 +41,7 @@ class ReaderTest(tf.test.TestCase):
     # Lengths of offsets and lengths are not matched.
 
     (num_captions, caption_strings, caption_lengths
-     ) = reader.parse_captions(tokens, offsets, lengths)
+     ) = reader._parse_captions(tokens, offsets, lengths)
 
     with self.test_session() as sess:
       with self.assertRaises(tf.errors.InvalidArgumentError):
@@ -54,7 +54,7 @@ class ReaderTest(tf.test.TestCase):
     # Basic, max_caption_length=4.
 
     (num_captions, caption_strings, caption_lengths
-     ) = reader.parse_captions(tokens, offsets, lengths, max_caption_length=4)
+     ) = reader._parse_captions(tokens, offsets, lengths, max_caption_length=4)
     with self.test_session() as sess:
       (num_caps, cap_strings, cap_lengths) = sess.run(
           [num_captions, caption_strings, caption_lengths], feed_dict={ 
@@ -71,7 +71,7 @@ class ReaderTest(tf.test.TestCase):
     # Trim, max_caption_length=2, also need to modify cap_lengths.
 
     (num_captions, caption_strings, caption_lengths
-     ) = reader.parse_captions(tokens, offsets, lengths, max_caption_length=2)
+     ) = reader._parse_captions(tokens, offsets, lengths, max_caption_length=2)
     with self.test_session() as sess:
       (num_caps, cap_strings, cap_lengths) = sess.run(
           [num_captions, caption_strings, caption_lengths], feed_dict={ 

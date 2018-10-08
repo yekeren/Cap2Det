@@ -337,7 +337,7 @@ class Model(ModelBase):
         cnn_feature_map=options.cnn_feature_map,
         cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
         cnn_checkpoint=options.cnn_checkpoint,
-        cnn_scope=GAPVariablesScopes.cnn,
+        cnn_scope=GAPVariableScopes.cnn,
         is_training=is_training)
 
     image_feature = self._project_images(image_feature, 

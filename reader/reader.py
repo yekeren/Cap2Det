@@ -8,82 +8,8 @@ import tensorflow as tf
 from core.standard_fields import InputDataFields
 from core.standard_fields import TFExampleDataFields
 from core.standard_fields import OperationNames
+from core import preprocess
 from protos import reader_pb2
-from protos import preprocess_pb2
-
-
-def _random_crop(image, random_crop_min_scale):
-  """Random crops image according to the minimum scale requirement.
-
-  Args:
-    image: a [height, width, 3] uint8 image tensor.
-    random_crop_min_scale: minimum scale.
-
-  Returns:
-    image: a [crop_height, crop_width, 3] float tensor.
-  """
-  height, width = tf.shape(image)[0], tf.shape(image)[1]
-
-  min_height = tf.cast(
-      tf.round(tf.cast(height, tf.float32) * random_crop_min_scale), tf.int32)
-  min_width = tf.cast(
-      tf.round(tf.cast(width, tf.float32) * random_crop_min_scale), tf.int32)
-
-  target_height = tf.random_uniform(shape=[], 
-      dtype=tf.int32, minval=min_height, maxval=height)
-  target_width = tf.random_uniform(shape=[], 
-      dtype=tf.int32, minval=min_width, maxval=width)
-
-  offset_height = tf.random_uniform(shape=[], 
-      dtype=tf.int32, minval=0, maxval=height - target_height)
-  offset_width = tf.random_uniform(shape=[], 
-      dtype=tf.int32, minval=0, maxval=width - target_width)
-
-  image = tf.image.crop_to_bounding_box(image, 
-      offset_height, offset_width, target_height, target_width)
-  return image
-
-def _preprocess(image, options):
-  """Preprocess image.
-
-  Args:
-    image: a [height, width, 3] uint8 tensor.
-    options: an instance of PreprocessOptions.
-
-  Returns:
-    preprocessed_image: a [height, width, 3] uint8 tensor.
-
-  Raises:
-    ValueError: if options is invalid
-  """
-  if not isinstance(options, preprocess_pb2.Preprocess):
-    raise ValueError('Options has to be an instance of Preprocess.')
-
-  image = tf.saturate_cast(image, dtype=tf.float32)
-
-  image = tf.cond(
-      tf.less(tf.random_uniform(shape=[]), options.random_flip_left_right_prob),
-      true_fn=lambda: tf.image.flip_left_right(image), false_fn=lambda: image)
-
-  image = tf.cond(
-      tf.less(tf.random_uniform(shape=[]), options.random_brightness_prob),
-      true_fn=lambda: tf.image.random_brightness(
-        image, max_delta=options.random_brightness_max_delta), 
-      false_fn=lambda: image)
-
-  image = tf.cond(
-      tf.less(tf.random_uniform(shape=[]), options.random_contrast_prob),
-      true_fn=lambda: tf.image.random_contrast(image, 
-        lower=options.random_contrast_lower, 
-        upper=options.random_contrast_upper), 
-      false_fn=lambda: image)
-
-  image = tf.cond(
-      tf.less(tf.random_uniform(shape=[]), options.random_crop_prob),
-      true_fn=lambda: _random_crop(image, options.random_crop_min_scale), 
-      false_fn=lambda: image)
-
-  return tf.saturate_cast(image, dtype=tf.uint8)
 
 
 def _parse_captions(tokens, offsets, lengths, max_caption_length=20):
@@ -187,7 +113,7 @@ def get_input_fn(options):
       image = tf.image.decode_jpeg(parsed[TFExampleDataFields.image_encoded],
           channels=options.image_channels)
       if options.HasField("preprocess_options"):
-        image = _preprocess(image, options.preprocess_options)
+        image = preprocess.preprocess(image, options.preprocess_options)
       image = tf.image.resize_images(image, [options.image_height,
           options.image_width])
 

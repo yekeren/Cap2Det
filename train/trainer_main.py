@@ -18,8 +18,7 @@ flags.DEFINE_string('type',
     '', 'A message string passed from command-line.')
 
 flags.DEFINE_string('pipeline_proto', 
-    'configs/224.pbtxt', 
-    'Path to the pipeline proto file.')
+    '', 'Path to the pipeline proto file.')
 
 FLAGS = flags.FLAGS
 

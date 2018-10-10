@@ -36,6 +36,9 @@ message GAPModel {
   // Path to the vocabulary weights file.
   optional string vocabulary_weights_file = 12;
 
+  // If true, also train the word embedding.
+  optional bool word_embedding_trainable = 13 [default = true];
+
   // Dropout rate.
   optional float dropout_keep_prob = 21 [default = 1.0];
 

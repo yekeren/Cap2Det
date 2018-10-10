@@ -21,7 +21,7 @@ tf.flags.DEFINE_string('vocabulary_file', '',
 tf.flags.DEFINE_string('vocabulary_weights_file', '',
                        'Vocabulary weights file to export.')
 
-tf.flags.DEFINE_integer('min_word_freq', 5, 
+tf.flags.DEFINE_integer('min_word_freq', 20, 
                         'Minimum word frequency.')
 
 FLAGS = tf.flags.FLAGS

@@ -53,6 +53,9 @@ def _create_model_fn(pipeline_proto):
     losses = model.build_loss(predictions)
     for name, loss in losses.items():
       tf.losses.add_loss(loss)
+    for loss in tf.losses.get_regularization_losses():
+      tf.summary.scalar("loss/regularization/" + '/'.join(loss.op.name.split('/')[:2]), loss)
+
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     train_op = None

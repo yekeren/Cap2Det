@@ -24,9 +24,9 @@ slim = tf.contrib.slim
 
 _BIG_NUMBER = 1e8
 _SMALL_NUMBER = 1e-8
+_LOG_SMALL_NUMBER = 1e-4
 _SPLITTER = "-" * 128
 _INIT_WIDTH = 0.03
-_STDDEV = 0.03
 
 
 class Model(ModelBase):
@@ -52,13 +52,18 @@ class Model(ModelBase):
     """
     options = self._model_proto
 
-    # Filter out CNN variables.
+    # Filter out variables that are not trainable.
     variables_to_train = []
     for var in tf.trainable_variables():
-      if options.cnn_trainable or GAPVariableScopes.cnn not in var.op.name:
-        variables_to_train.append(var)
-      else:
-        tf.logging.info("Freeze cnn parameter %s.", var.op.name)
+      if not options.cnn_trainable:
+        if GAPVariableScopes.cnn in var.op.name:
+          tf.logging.info("Freeze cnn parameter %s.", var.op.name)
+          continue
+      if not options.word_embedding_trainable:
+        if GAPVariableScopes.word_embedding in var.op.name:
+          tf.logging.info("Freeze word embedding parameter %s.", var.op.name)
+          continue
+      variables_to_train.append(var)
 
     # Print trainable variables.
 
@@ -159,7 +164,7 @@ class Model(ModelBase):
 
     # Load pre-trained model from checkpoint.
 
-    if cnn_checkpoint is None:
+    if not cnn_checkpoint:
       tf.logging.warning("Pre-trained checkpoint path is not provided!")
     else:
       tf.train.init_from_checkpoint(cnn_checkpoint, 
@@ -217,7 +222,7 @@ class Model(ModelBase):
        dtype=tf.string,
        num_oov_buckets=1)
     embedding_column = tf.feature_column.embedding_column(
-        categorical_column, dimension=common_dimensions)
+        categorical_column, dimension=common_dimensions, max_norm=1.0)
 
     # Embed the caption words.
 
@@ -391,7 +396,7 @@ class Model(ModelBase):
        dtype=tf.string,
        num_oov_buckets=1)
     embedding_column = tf.feature_column.embedding_column(
-        categorical_column, dimension=options.common_dimensions)
+        categorical_column, dimension=options.common_dimensions, max_norm=1.0)
 
     word_embedding = tf.feature_column.input_layer(
         {scope_prefix: vocabulary_list},
@@ -527,7 +532,7 @@ class Model(ModelBase):
 
         if options.image_regularizer_weight > 0.0:
           log_image_attention = tf.log(
-              tf.maximum(image_attention, _SMALL_NUMBER))
+              tf.maximum(image_attention, _LOG_SMALL_NUMBER))
           loss = tf.multiply(
               options.image_regularizer_weight,
               tf.reduce_mean(tf.reduce_sum(log_image_attention, axis=1)))
@@ -536,7 +541,7 @@ class Model(ModelBase):
 
         if options.text_regularizer_weight > 0.0:
           log_caption_attention = tf.log(
-              tf.maximum(caption_attention, _SMALL_NUMBER))
+              tf.maximum(caption_attention, _LOG_SMALL_NUMBER))
           loss = tf.multiply(
               options.text_regularizer_weight,
               tf.reduce_mean(

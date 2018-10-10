@@ -19,8 +19,10 @@ from core.standard_fields import GAPPredictionTasks
 flags = tf.app.flags
 
 flags.DEFINE_string('pipeline_proto', 
-    'configs/448.pbtxt', 
-    'Path to the pipeline proto file.')
+    '', 'Path to the pipeline proto file.')
+
+flags.DEFINE_bool('ascending_order', 
+    False, 'If true, sort the word in ascending order.')
 
 FLAGS = flags.FLAGS
 
@@ -77,7 +79,10 @@ def main(_):
     # Print word importance.
 
     vocabulary, saliency = sess.run([vocabulary, saliency])
-    indices = np.argsort(saliency)[::-1]
+    if FLAGS.ascending_order:
+      indices = np.argsort(saliency)
+    else:
+      indices = np.argsort(saliency)[::-1]
 
     for i in indices[:100]:
       tf.logging.info("%12s: %.4lf", vocabulary[i].decode('UTF-8'), saliency[i])

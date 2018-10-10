@@ -19,8 +19,7 @@ from core.standard_fields import GAPPredictionTasks
 flags = tf.app.flags
 
 flags.DEFINE_string('pipeline_proto', 
-    'configs/448.pbtxt', 
-    'Path to the pipeline proto file.')
+    '', 'Path to the pipeline proto file.')
 
 flags.DEFINE_string('image_path', 
     'testdata', 

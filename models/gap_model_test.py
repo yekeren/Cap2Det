@@ -20,6 +20,28 @@ class GAPModelTest(tf.test.TestCase):
     model_proto = gap_model_pb2.GAPModel()
     model = gap_model.Model(model_proto, is_training=False)
 
+    # MobilenetV1, 224x224 input.
+
+    tf.reset_default_graph()
+
+    image = tf.random_uniform(shape=[32, 224, 224, 3])
+    feature_map = model._encode_images(image, 
+        cnn_name="mobilenet_v1", 
+        cnn_feature_map="Conv2d_13_pointwise",
+        is_training=False)
+    self.assertAllEqual(feature_map.get_shape().as_list(), [32, 7, 7, 1024])
+
+    # MobilenetV1, 448x448 input.
+
+    tf.reset_default_graph()
+
+    image = tf.random_uniform(shape=[32, 448, 448, 3])
+    feature_map = model._encode_images(image, 
+        cnn_name="mobilenet_v1", 
+        cnn_feature_map="Conv2d_13_pointwise",
+        is_training=False)
+    self.assertAllEqual(feature_map.get_shape().as_list(), [32, 14, 14, 1024])
+
     # MobilenetV2, 224x224 input.
 
     tf.reset_default_graph()

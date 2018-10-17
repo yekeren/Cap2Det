@@ -3,10 +3,30 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+import warnings
+import cv2
+import numpy as np
 import tensorflow as tf
 
 _BIG_NUMBER = 1e10
-_SMALL_NUMBER = 1e-10
+
+
+def deprecated(func):
+  """A decorator which can be used to mark functions as deprecated.
+  
+  Args:
+    func: the actual function.
+
+  Returns:
+    new_func: a wrapping of the actual function `func`.
+  """
+  @functools.wraps(func)
+  def new_func(*args, **kwargs):
+    warnings.warn("Function `{}` is deprecated.".format(func.__name__),
+        category=DeprecationWarning, stacklevel=2)
+    return func(*args, **kwargs)
+  return new_func
 
 
 def get_tensor_shape(tensor):
@@ -86,4 +106,3 @@ def masked_softmax(data, mask, dim=1):
   """
   mask = _BIG_NUMBER * (1.0 - mask)
   return tf.nn.softmax(data - mask, axis=dim)
-

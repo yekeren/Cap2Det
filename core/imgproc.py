@@ -173,8 +173,8 @@ def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
 
   Returns:
     num_boxes: a scalar int representing the number of boxes in the image.
-    boxes: a [num_boxes, 4] float numpy array representing normalized boxes [ymin,
-      xmin, ymax, xmax].
+    boxes: a [max_num_boxes, 4] float numpy array representing normalized boxes
+      [ymin, xmin, ymax, xmax].
   """
   height, width, _ = image.shape
   edge_boxes.setMaxBoxes(max_num_boxes)
@@ -185,13 +185,20 @@ def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
   nmsed_edges = edge_detection.edgesNms(edges, orimap)
   boxes = edge_boxes.getBoundingBoxes(nmsed_edges, orimap)
 
+  num_boxes = len(boxes)
+  if 0 == num_boxes:
+    return 0, np.zeros((max_num_boxes, 4), dtype=np.float32)
+
   x, y, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
   boxes = np.stack([
       y / height, 
       x / width, 
       (y + h) / height, 
       (x + w) / width], axis=-1).astype(np.float32)
-  num_boxes = boxes.shape[0]
+
+  boxes = np.concatenate(
+      [boxes, np.zeros((max_num_boxes - len(boxes), 4), dtype=np.float32)],
+      axis=0)
   return num_boxes, boxes
 
 
@@ -225,7 +232,7 @@ def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
         inp=[image], Tout=[tf.int64, tf.float32])
 
     num_boxes.set_shape(tf.TensorShape([]))
-    boxes.set_shape(tf.TensorShape([None, 4]))
+    boxes.set_shape(tf.TensorShape([max_num_boxes, 4]))
     return [num_boxes, boxes]
 
   return tf.map_fn(_get_fn, elems=image, dtype=[tf.int64, tf.float32])

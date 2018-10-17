@@ -180,25 +180,35 @@ class ImgProcTest(tf.test.TestCase):
     tf.logging.info("The image with edge boxes is written to %s.", filename)
 
   def test_get_edge_boxes(self):
-    filename = os.path.join(_TESTDATA, _TESTFILE)
-    image_data = cv2.imread(filename)[:, :, ::-1].copy()
-
-    image = tf.placeholder(tf.uint8, shape=[None, None, 3])
+    images = tf.placeholder(tf.uint8, shape=[None, None, None, 3])
     edge_detection = cv2.ximgproc.createStructuredEdgeDetection(_XIMGPROC_MODEL)
     edge_boxes = cv2.ximgproc.createEdgeBoxes()
 
     num_boxes, boxes = imgproc.get_edge_boxes(
-        tf.cast(tf.expand_dims(image, 0), tf.float32),
+        tf.cast(images, tf.float32),
         edge_detection, edge_boxes, max_num_boxes=5)
 
     with self.test_session() as sess:
+
+      # Empty image.
+
+      black_im = np.zeros((224, 224, 3), np.float32)
       num_boxes_val, boxes_val = sess.run(
-          [num_boxes[0], boxes[0]], feed_dict={ image: image_data })
+          [num_boxes[0], boxes[0]], feed_dict={ images: [black_im] })
+      self.assertEqual(0, num_boxes_val)
+      self.assertAllEqual(boxes_val.shape, [5, 4])
+
+      # Normal image.
+
+      filename = os.path.join(_TESTDATA, _TESTFILE)
+      rgb_im = cv2.imread(filename)[:, :, ::-1].copy()
+      num_boxes_val, boxes_val = sess.run(
+          [num_boxes[0], boxes[0]], feed_dict={ images: [rgb_im] })
       self.assertEqual(5, num_boxes_val)
       self.assertAllEqual(boxes_val.shape, [5, 4])
 
     image_with_boxes = plotlib._py_draw_rectangles(
-        image_data, boxes_val, color=[0, 255, 0], thickness=4)
+        rgb_im, boxes_val, color=[0, 255, 0], thickness=4)
 
     filename = os.path.join(_TMPDIR, "edge_boxes.jpg")
     cv2.imwrite(filename, image_with_boxes[:, :, ::-1])

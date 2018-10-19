@@ -37,6 +37,29 @@ def _py_convert_to_heatmap(image, normalize=True):
   return heatmap[:, :, :3].astype(np.float32)
 
 
+def _py_show_heatmap(image, saliency):
+  """Shows heatmap on the original image.
+
+  Args:
+    image: a [height, width, 3] uint8 numpy array.
+    saliency: a [height, width] float numpy array.
+
+  Returns:
+    image_with_heatmap: a [height, width, 3] uint8 numpy array with heatmap
+      visualization.
+  """
+  heatmap = _py_convert_to_heatmap(saliency, normalize=False)
+
+  min_v, max_v = saliency.min(), saliency.max()
+  saliency = (saliency - min_v) / (_SMALL_NUMBER + max_v - min_v)
+  saliency = np.expand_dims(saliency, -1)
+
+  image_with_heatmap = np.add(
+      np.multiply(1.0 - saliency, image.astype(np.float32)),
+      np.multiply(saliency, heatmap * 255.0)).astype(np.uint8)
+  return image_with_heatmap
+
+
 def _py_draw_rectangles(image, boxes, color, thickness):
   """Draws boxes on the image.
 

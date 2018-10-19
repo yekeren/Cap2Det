@@ -47,12 +47,14 @@ class InputDataFields(object):
   num_captions = "num_captions"
   caption_strings = "caption_strings"
   caption_lengths = "caption_lengths"
+  category_strings = "category_strings"
 
 
 class GAPPredictionTasks(object):
   """Prediction tasks of the GAP model."""
   similarity = "similarity"
   image_saliency = "image_saliency"
+  image_score_map = "image_score_map"
   word_saliency = "word_saliency"
 
 
@@ -72,5 +74,6 @@ class GAPPredictions(object):
   similarity = "similarity"
 
   image_saliency = "image_saliency"
+  image_score_map = "image_score_map"
   word_saliency = "image_saliency"
   vocabulary = "vocabulary"

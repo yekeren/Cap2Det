@@ -4,7 +4,11 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+
 from core import utils
+from core import imgproc
+
+_SMALL_NUMBER = 1e-10
 
 
 def gather_in_batch_captions(
@@ -59,3 +63,99 @@ def gather_in_batch_captions(
       caption_lengths_reshaped, caption_mask)
 
   return image_ids_gathered, caption_strings_gathered, caption_lengths_gathered
+
+
+def _get_expanded_box(box, img_h, img_w, border_ratio):
+  """Gets expanded box.
+
+  Args:
+    box: a [..., 4] int tensor representing [ymin, xmin, ymax, xmax].
+    img_h: image height.
+    img_w: image width.
+    border_ratio: width of the border in terms of percentage.
+
+  Returns:
+    expanded_box: a [..., 4] int tensor with border expanded.
+  """
+  ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+  (box_h, box_w) = ymax - ymin, xmax - xmin
+
+  border_h = tf.cast(tf.cast(box_h, tf.float32) * border_ratio, tf.int64)
+  border_w = tf.cast(tf.cast(box_w, tf.float32) * border_ratio, tf.int64)
+
+  ymin_expanded = tf.maximum(ymin - border_h, 0)
+  xmin_expanded = tf.maximum(xmin - border_w, 0)
+  ymax_expanded = tf.minimum(ymax + border_h, img_h)
+  xmax_expanded = tf.minimum(xmax + border_w, img_w)
+
+  return tf.stack([
+      ymin_expanded, xmin_expanded, ymax_expanded, xmax_expanded], axis=-1)
+
+
+def _get_box_shape(box):
+  """Gets the height and width of the box.
+
+  Args:
+    box: a [..., 4] int tensor representing [ymin, xmin, ymax, xmax].
+
+  Returns:
+    box_h: [...] box height.
+    box_w: [...] box width.
+  """
+  ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+  return ymax - ymin, xmax - xmin
+
+
+def build_proposal_saliency_fn(func_name, **kwargs):
+  """Builds and returns a callable to compute the proposal saliency.
+
+  Args:
+    func_name: name of the method.
+
+  Returns:
+    a callable that took `saliency_map` and `box` as parameters.
+  """
+  if func_name == 'saliency_sum':
+    return imgproc.calc_cumsum_2d
+
+  if func_name == 'saliency_avg':
+
+    def _cumsum_avg(saliency_map, box):
+      ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+      area = (ymax - ymin) * (xmax - xmin)
+      return tf.div( 
+          imgproc.calc_cumsum_2d(saliency_map, box), 
+          _SMALL_NUMBER + tf.cast(area, tf.float32))
+
+    return _cumsum_avg
+
+  if func_name == 'saliency_grad':
+    border_ratio = 0.1
+    
+    def _cumsum_gradient(saliency_map, box):
+      b, n, m = utils.get_tensor_shape(saliency_map)
+      _, p, _ = utils.get_tensor_shape(box)
+
+      expanded_box = _get_expanded_box(
+          box, img_h=n, img_w=m, border_ratio=0.1)
+
+      (box_h, box_w) = _get_box_shape(box)
+      (expanded_box_h, expanded_box_w) = _get_box_shape(expanded_box)
+
+      cumsum = imgproc.calc_cumsum_2d(
+          saliency_map, tf.concat([box, expanded_box], axis=1))
+      cumsum[:, :p], cumsum[:, p:]
+
+      avg_val = tf.div(
+          cumsum[:, :p], 
+          _SMALL_NUMBER + tf.cast(box_h * box_w, tf.float32))
+      avg_val_in_border = tf.div(
+          cumsum[:, p:] - cumsum[:, :p], 
+          _SMALL_NUMBER + tf.cast(
+            expanded_box_h * expanded_box_w - box_h * box_w, tf.float32))
+
+      return avg_val - avg_val_in_border
+
+    return _cumsum_gradient
+
+  raise ValueError('Invalid func_name {}'.format(func_name))

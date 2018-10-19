@@ -185,9 +185,40 @@ class Model(ModelBase):
       vocabulary_list = [word.strip('\n') for word in fid.readlines()]
     return vocabulary_list
 
+  def _encode_words(self, words, common_dimensions, vocabulary_list):
+    """Encodes words to the embedding vectors.
+
+    Args:
+      words: a list of words or a string tensor of shape [num_words].
+      common_dimensions: size of the word embedding.
+      vocabulary_list: vocabulary, a list of strings.
+
+    Returns:
+      word_embedding: a [num_words, common_dimensions] float tensor representing
+        word embedding vectors.
+    """
+    scope = GAPVariableScopes.word_embedding
+    if scope[-len("_embedding"):] != "_embedding":
+      raise ValueError("Invalid variable scope name %s.", scope)
+    scope_prefix = scope[:-len("_embedding")]
+
+    (categorical_column
+     ) = tf.feature_column.categorical_column_with_vocabulary_list(
+       key=scope_prefix,
+       vocabulary_list=vocabulary_list,
+       dtype=tf.string,
+       num_oov_buckets=1)
+
+    embedding_column = tf.feature_column.embedding_column(
+        categorical_column, dimension=common_dimensions, max_norm=1.0)
+
+    word_embedding = tf.feature_column.input_layer(
+        {scope_prefix: words}, feature_columns=[embedding_column])
+    return word_embedding
+
   def _encode_captions(self, 
       caption_strings, 
-      vocabulary_list=None,
+      vocabulary_list,
       common_dimensions=300,
       scope="coco_word_embedding",
       is_training=False):
@@ -205,37 +236,18 @@ class Model(ModelBase):
       text_feature: embedding of each word, a [num_captions_in_batch, 
         max_caption_length, common_dimensions] tensor.
     """
-
-    # Initialize the embedding column.
-
-    if not vocabulary_list:
-      raise ValueError('The vocabulary_list cannot be empty.')
-
-    if scope[-len("_embedding"):] != "_embedding":
-      raise ValueError("Invalid variable scope name %s.", scope)
-    scope_prefix = scope[:-len("_embedding")]
-
-    (categorical_column
-     ) = tf.feature_column.categorical_column_with_vocabulary_list(
-       key=scope_prefix,
-       vocabulary_list=vocabulary_list,
-       dtype=tf.string,
-       num_oov_buckets=1)
-    embedding_column = tf.feature_column.embedding_column(
-        categorical_column, dimension=common_dimensions, max_norm=1.0)
-
-    # Embed the caption words.
-
     (num_captions_in_batch, max_caption_length
      ) = utils.get_tensor_shape(caption_strings)
 
-    caption_strings_flattened = tf.reshape(caption_strings, [-1, 1])
+    caption_strings_flattened = tf.reshape(caption_strings, [-1])
 
-    text_feature_flattened = tf.feature_column.input_layer(
-        {scope_prefix: caption_strings_flattened},
-        feature_columns=[embedding_column])
+    text_feature_flattened = self._encode_words(
+        caption_strings_flattened, 
+        common_dimensions, 
+        vocabulary_list)
 
-    text_feature = tf.reshape(text_feature_flattened, 
+    text_feature = tf.reshape(
+        text_feature_flattened, 
         [num_captions_in_batch, max_caption_length, common_dimensions])
 
     return text_feature
@@ -315,6 +327,90 @@ class Model(ModelBase):
           inputs, num_outputs=1, activation_fn=None, scope=scope)
     return tf.squeeze(saliency_score, axis=-1)
 
+  def _predict_image_score_map(self, examples):
+    """Builds tf graph for prediction.
+
+    Args:
+      examples: dict of input tensors keyed by name.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+    options = self._model_proto
+    is_training = self._is_training
+
+    if not options.use_saliency_score:
+      raise ValueError("The flag of `use_saliency_score` should be set.")
+
+    (image, category_strings) = (
+       examples[InputDataFields.image],
+       examples[InputDataFields.category_strings])
+
+    # Extract image feature, shape = 
+    #   [batch, feature_height * feature_width, common_dimensions].
+
+    image_feature = self._encode_images(image,
+        cnn_name=options.cnn_name,
+        cnn_trainable=options.cnn_trainable,
+        cnn_weight_decay=options.cnn_weight_decay,
+        cnn_feature_map=options.cnn_feature_map,
+        cnn_dropout_keep_prob=options.cnn_dropout_keep_prob,
+        cnn_checkpoint=options.cnn_checkpoint,
+        cnn_scope=GAPVariableScopes.cnn,
+        is_training=is_training)
+
+    image_feature = self._project_images(image_feature, 
+        common_dimensions=options.common_dimensions,
+        scope=GAPVariableScopes.image_proj,
+        hyperparams=options.image_proj_hyperparams,
+        is_training=is_training)
+
+    (batch, feature_height, feature_width, common_dimensions
+     ) = utils.get_tensor_shape(image_feature)
+    image_feature = tf.reshape(image_feature, [batch, -1, common_dimensions])
+
+    # Predict saliency score, shape = [batch, num_regions].
+
+    image_saliency = self._calc_saliency_score(
+        image_feature, 
+        scope=GAPVariableScopes.image_saliency,
+        hyperparams=options.image_saliency_hyperparams,
+        is_training=is_training)
+
+    # Compute the pairwise similarity between the category label and image.
+
+    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
+    tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
+
+    category_feature = tf.expand_dims(self._encode_words(
+        category_strings,
+        options.common_dimensions,
+        vocabulary_list), axis=0)
+    similarity = self._calc_pairwise_similarity(
+        image_feature=tf.nn.l2_normalize(image_feature, axis=-1),
+        text_feature=tf.nn.l2_normalize(category_feature, axis=-1),
+        dropout_keep_prob=options.dropout_keep_prob,
+        is_training=is_training)
+
+    # Compute the category-aware score map.
+    #   similarity shape = [batch, feature_height, feature_width, num_classes].
+    #   image_saliency shape = [batch, feature_height, feature_width].
+
+    similarity = tf.reshape(
+        tf.squeeze(similarity, axis=2), 
+        [batch, feature_height, feature_width, -1])
+    image_attention = tf.reshape(
+        tf.nn.softmax(image_saliency, axis=-1), 
+        [batch, feature_height, feature_width])
+    score_map = similarity #* tf.expand_dims(image_attention, axis=-1)
+
+    return { 
+      GAPPredictions.image_saliency: tf.reshape(
+          image_saliency, [-1, feature_height, feature_width]),
+      GAPPredictions.image_score_map: score_map }
+
+
+  @utils.deprecated
   def _predict_image_saliency(self, examples):
     """Builds tf graph for prediction.
 
@@ -381,26 +477,21 @@ class Model(ModelBase):
     options = self._model_proto
     is_training = self._is_training
 
+    # Read vocabulary_list.
+
     vocabulary_list = self._read_vocabulary(options.vocabulary_file)
     tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
 
-    scope = GAPVariableScopes.word_embedding
-    if scope[-len("_embedding"):] != "_embedding":
-      raise ValueError("Invalid variable scope name %s.", scope)
-    scope_prefix = scope[:-len("_embedding")]
+    # Create word_embedding.
 
-    (categorical_column
-     ) = tf.feature_column.categorical_column_with_vocabulary_list(
-       key=scope_prefix,
-       vocabulary_list=vocabulary_list,
-       dtype=tf.string,
-       num_oov_buckets=1)
-    embedding_column = tf.feature_column.embedding_column(
-        categorical_column, dimension=options.common_dimensions, max_norm=1.0)
+    word_embedding = self._encode_words(
+        vocabulary_list, options.common_dimensions, vocabulary_list)
+    
+    if options.l2_norm_for_word_saliency:
+      word_embedding = tf.nn.l2_normalize(word_embedding, axis=-1)
 
-    word_embedding = tf.feature_column.input_layer(
-        {scope_prefix: vocabulary_list},
-        feature_columns=[embedding_column])
+    # Compute word saliency score.
+
     word_saliency = self._calc_saliency_score(
         word_embedding,
         scope=GAPVariableScopes.word_saliency,
@@ -507,6 +598,9 @@ class Model(ModelBase):
             scope=GAPVariableScopes.image_saliency,
             hyperparams=options.image_saliency_hyperparams,
             is_training=is_training)
+
+        if options.l2_norm_for_word_saliency:
+          caption_feature = tf.nn.l2_normalize(caption_feature, axis=-1)
         caption_saliency = self._calc_saliency_score(
             caption_feature,
             scope=GAPVariableScopes.word_saliency,
@@ -597,6 +691,9 @@ class Model(ModelBase):
 
     elif prediction_task == GAPPredictionTasks.image_saliency:
       return self._predict_image_saliency(examples)
+
+    elif prediction_task == GAPPredictionTasks.image_score_map:
+      return self._predict_image_score_map(examples)
 
     elif prediction_task == GAPPredictionTasks.word_saliency:
       return self._predict_word_saliency(examples)

@@ -185,9 +185,11 @@ def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
   nmsed_edges = edge_detection.edgesNms(edges, orimap)
   boxes = edge_boxes.getBoundingBoxes(nmsed_edges, orimap)
 
+  default_box = np.array([[0, 0, 1, 1]], dtype=np.float32)
+
   num_boxes = len(boxes)
   if 0 == num_boxes:
-    return 0, np.zeros((max_num_boxes, 4), dtype=np.float32)
+    return 0, np.tile(default_box, reps=[max_num_boxes, 1])
 
   x, y, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
   boxes = np.stack([
@@ -197,12 +199,13 @@ def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
       (x + w) / width], axis=-1).astype(np.float32)
 
   boxes = np.concatenate(
-      [boxes, np.zeros((max_num_boxes - len(boxes), 4), dtype=np.float32)],
+      [boxes, np.tile(default_box, reps=[max_num_boxes - num_boxes, 1])],
       axis=0)
+  # tf.logging.info('_py_get_edge_boxes is called, num_boxes=%i.', num_boxes)
   return num_boxes, boxes
 
 
-def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
+def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes):
   """Extracts edge boxes from image tensor.
 
   Args:

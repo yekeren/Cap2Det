@@ -73,6 +73,10 @@ def _get_score_map(input_path, output_path, names, score_map_func):
         (255.0 * plotlib._py_convert_to_heatmap(score_map, normalize=(i==0))
          ).astype(np.uint8))
 
+  for name, output in zip(['original'] + names, outputs):
+    filepath, filename = os.path.split(output_path)
+    cv2.imwrite(os.path.join(filepath, name + '_' + filename), output[:, :, ::-1])  # To BGR.
+
   output = np.concatenate(outputs, axis=1)
   cv2.imwrite(output_path, output[:, :, ::-1])  # To BGR.
 
@@ -82,7 +86,7 @@ def main(_):
   tf.logging.info("Pipeline configure: %s", '=' * 128)
   tf.logging.info(pipeline_proto)
 
-  categories = ['bear', 'beach', 'car', 'motorcycle', 'light', 'donut', 'plate']
+  categories = ['bear', 'beach', 'car', 'motorcycle', 'light', 'donut', 'plate', 'person', 'skateboard']
 
   g = tf.Graph()
   with g.as_default():
@@ -108,7 +112,7 @@ def main(_):
       feature_map = tf.image.resize_images(
           tf.expand_dims(feature_map, axis=-1), [height, width])
       return tf.squeeze(
-          imgproc.gaussian_filter(feature_map, ksize=32), axis=-1)[0]
+          imgproc.gaussian_filter(feature_map, ksize=16), axis=-1)[0]
 
     score_map_list = [resize_fn(saliency_map)] + [resize_fn(x) for x in tf.unstack(score_maps, axis=-1)]
 

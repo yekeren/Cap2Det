@@ -59,15 +59,17 @@ def calc_integral_image(image):
   """Computes the integral image.
 
   Args:
-    image: 3-D float `Tensor` of size [b, n, m].
+    image: 4-D float `Tensor` of size [b, n, m, c], representing `b` images with
+      height `n`, width `m`, and channels `c`.
 
   Returns:
-    cumsum: 3-D float `Tensor` of size [b, n + 1, m + 1]
+    cumsum: 3-D float `Tensor` of size [b, n + 1, m + 1, c], channel-wise
+      cumulative sum.
   """
-  b, n, m = utils.get_tensor_shape(image)
+  b, n, m, c = utils.get_tensor_shape(image)
 
-  pad_top = tf.fill([b, 1, m], 0.0)
-  pad_left = tf.fill([b, n + 1, 1], 0.0)
+  pad_top = tf.fill([b, 1, m, c], 0.0)
+  pad_left = tf.fill([b, n + 1, 1, c], 0.0)
   image = tf.concat([pad_top, image], axis=1)
   image = tf.concat([pad_left, image], axis=2)
 
@@ -83,14 +85,15 @@ def calc_cumsum_2d(image, box):
   i_c (ymax, xmin), ..., i_d (ymax, xmax)
 
   Args:
-    image: 3-D float `Tensor` of size [b, n, m].
+    image: 4-D float `Tensor` of size [b, n, m, c], representing `b` images with
+      height `n`, width `m`, and channels `c`.
     box: 3-D int64 `Tensor` of size [b, p, 4], representing `b` examples each 
       with `p` proposals in the format of [ymin, xmin, ymax, xmax].
 
   Returns:
-    cumsum: 2-D float `Tensor` of size [b, p].
+    cumsum: 3-D float `Tensor` of size [b, p, c], channel-wise cumulative sum.
   """
-  b, n, m = utils.get_tensor_shape(image)
+  b, n, m, c = utils.get_tensor_shape(image)
   _, p, _ = utils.get_tensor_shape(box)
 
   cumsum = calc_integral_image(image)
@@ -107,6 +110,7 @@ def calc_cumsum_2d(image, box):
   return i_d + i_a - i_b - i_c
 
 
+@utils.deprecated
 def calc_box_saliency(saliency_map, box, border_ratio=0.1, alpha=1.0):
   """Computes the saliency score of each box.
 

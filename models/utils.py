@@ -113,18 +113,18 @@ def build_proposal_saliency_fn(func_name, **kwargs):
     func_name: name of the method.
 
   Returns:
-    a callable that took `saliency_map` and `box` as parameters.
+    a callable that takes `score_map` and `box` as parameters.
   """
   if func_name == 'saliency_sum':
     return imgproc.calc_cumsum_2d
 
   if func_name == 'saliency_avg':
 
-    def _cumsum_avg(saliency_map, box):
+    def _cumsum_avg(score_map, box):
       ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
-      area = (ymax - ymin) * (xmax - xmin)
+      area = tf.expand_dims((ymax - ymin) * (xmax - xmin), axis=-1)
       return tf.div( 
-          imgproc.calc_cumsum_2d(saliency_map, box), 
+          imgproc.calc_cumsum_2d(score_map, box), 
           _SMALL_NUMBER + tf.cast(area, tf.float32))
 
     return _cumsum_avg
@@ -132,8 +132,8 @@ def build_proposal_saliency_fn(func_name, **kwargs):
   if func_name == 'saliency_grad':
     border_ratio = 0.1
     
-    def _cumsum_gradient(saliency_map, box):
-      b, n, m = utils.get_tensor_shape(saliency_map)
+    def _cumsum_gradient(score_map, box):
+      b, n, m, c = utils.get_tensor_shape(score_map)
       _, p, _ = utils.get_tensor_shape(box)
 
       expanded_box = _get_expanded_box(
@@ -143,16 +143,17 @@ def build_proposal_saliency_fn(func_name, **kwargs):
       (expanded_box_h, expanded_box_w) = _get_box_shape(expanded_box)
 
       cumsum = imgproc.calc_cumsum_2d(
-          saliency_map, tf.concat([box, expanded_box], axis=1))
-      cumsum[:, :p], cumsum[:, p:]
+          score_map, tf.concat([box, expanded_box], axis=1))
 
-      avg_val = tf.div(
-          cumsum[:, :p], 
-          _SMALL_NUMBER + tf.cast(box_h * box_w, tf.float32))
+      area = tf.expand_dims(tf.cast(box_h * box_w, tf.float32), axis=-1)
+      area_border = tf.expand_dims(
+          tf.cast(expanded_box_h * expanded_box_w - box_h * box_w, tf.float32),
+          axis=-1)
+
+      avg_val = tf.div(cumsum[:, :p, :], _SMALL_NUMBER + area)
       avg_val_in_border = tf.div(
-          cumsum[:, p:] - cumsum[:, :p], 
-          _SMALL_NUMBER + tf.cast(
-            expanded_box_h * expanded_box_w - box_h * box_w, tf.float32))
+          cumsum[:, p:, :] - cumsum[:, :p, :],
+          _SMALL_NUMBER + area_border)
 
       return avg_val - avg_val_in_border
 

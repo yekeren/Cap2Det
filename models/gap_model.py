@@ -402,13 +402,25 @@ class Model(ModelBase):
     image_attention = tf.reshape(
         tf.nn.softmax(image_saliency, axis=-1), 
         [batch, feature_height, feature_width])
-    score_map = similarity #* tf.expand_dims(image_attention, axis=-1)
+    image_saliency = tf.reshape(
+        image_saliency, [-1, feature_height, feature_width])
+
+    # Normalize score map
+
+    value_min = tf.reduce_min(image_saliency, axis=[1, 2], keepdims=True)
+    value_max = tf.reduce_max(image_saliency, axis=[1, 2], keepdims=True)
+    image_saliency_normalized = (image_saliency - value_min) / (_SMALL_NUMBER + value_max - value_min)
+
+    value_min = tf.reduce_min(similarity, axis=[1, 2, 3], keepdims=True)
+    value_max = tf.reduce_max(similarity, axis=[1, 2, 3], keepdims=True)
+    similarity_normalized = (similarity - value_min) / (_SMALL_NUMBER + value_max - value_min)
+
+    score_map = similarity * tf.expand_dims(image_saliency_normalized, axis=-1)
+    #score_map = similarity_normalized * tf.expand_dims(image_saliency_normalized, axis=-1)
 
     return { 
-      GAPPredictions.image_saliency: tf.reshape(
-          image_saliency, [-1, feature_height, feature_width]),
+      GAPPredictions.image_saliency: image_saliency,
       GAPPredictions.image_score_map: score_map }
-
 
   @utils.deprecated
   def _predict_image_saliency(self, examples):

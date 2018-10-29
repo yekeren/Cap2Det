@@ -39,6 +39,9 @@ message GAPModel {
   // If true, also train the word embedding.
   optional bool word_embedding_trainable = 13 [default = true];
 
+  // If true, apply l2 normalization on the word feature.
+  optional bool l2_norm_for_word_saliency = 14 [default = false];
+
   // Dropout rate.
   optional float dropout_keep_prob = 21 [default = 1.0];
 

@@ -24,6 +24,9 @@ flags.DEFINE_string('pipeline_proto',
 flags.DEFINE_bool('ascending_order', 
     False, 'If true, sort the word in ascending order.')
 
+flags.DEFINE_integer('top_k',
+    100, 'Number of top words to show.')
+
 FLAGS = flags.FLAGS
 
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -84,8 +87,9 @@ def main(_):
     else:
       indices = np.argsort(saliency)[::-1]
 
-    for i in indices[:100]:
+    for i in indices[:FLAGS.top_k]:
       tf.logging.info("%12s: %.4lf", vocabulary[i].decode('UTF-8'), saliency[i])
+      print('%s\t%.4lf' % (vocabulary[i].decode('UTF-8'), saliency[i]))
 
   tf.logging.info('Done')
 

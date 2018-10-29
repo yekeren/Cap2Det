@@ -82,11 +82,45 @@ def _get_expanded_box(box, img_h, img_w, border_ratio):
 
   border_h = tf.cast(tf.cast(box_h, tf.float32) * border_ratio, tf.int64)
   border_w = tf.cast(tf.cast(box_w, tf.float32) * border_ratio, tf.int64)
+  border_h = tf.maximum(border_h, 1)
+  border_w = tf.maximum(border_w, 1)
 
   ymin_expanded = tf.maximum(ymin - border_h, 0)
   xmin_expanded = tf.maximum(xmin - border_w, 0)
   ymax_expanded = tf.minimum(ymax + border_h, img_h)
   xmax_expanded = tf.minimum(xmax + border_w, img_w)
+
+  return tf.stack([
+      ymin_expanded, xmin_expanded, ymax_expanded, xmax_expanded], axis=-1)
+
+
+def _get_shrinked_box(box, img_h, img_w, border_ratio):
+  """Gets expanded box.
+
+  Args:
+    box: a [..., 4] int tensor representing [ymin, xmin, ymax, xmax].
+    img_h: image height.
+    img_w: image width.
+    border_ratio: width of the border in terms of percentage.
+
+  Returns:
+    expanded_box: a [..., 4] int tensor with border expanded.
+  """
+  ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+  (box_h, box_w) = ymax - ymin, xmax - xmin
+
+  border_h = tf.cast(tf.cast(box_h, tf.float32) * border_ratio, tf.int64)
+  border_w = tf.cast(tf.cast(box_w, tf.float32) * border_ratio, tf.int64)
+  border_h = tf.maximum(border_h, 1)
+  border_w = tf.maximum(border_w, 1)
+
+  mid_h = (ymin + ymax) // 2
+  mid_w = (xmin + xmax) // 2
+
+  ymin_expanded = tf.minimum(ymin + border_h, mid_h - 1)
+  xmin_expanded = tf.minimum(xmin + border_w, mid_w - 1)
+  ymax_expanded = tf.maximum(ymax - border_h, mid_h + 1)
+  xmax_expanded = tf.maximum(xmax - border_w, mid_w + 1)
 
   return tf.stack([
       ymin_expanded, xmin_expanded, ymax_expanded, xmax_expanded], axis=-1)
@@ -106,7 +140,20 @@ def _get_box_shape(box):
   return ymax - ymin, xmax - xmin
 
 
-def build_proposal_saliency_fn(func_name, **kwargs):
+def _get_box_area(box):
+  """Gets the box area.
+
+  Args:
+    box: a [..., 4] int tensor representing [ymin, xmin, ymax, xmax].
+
+  Returns:
+    area: a [...] int tensor representing area of the box.
+  """
+  box_h, box_w = _get_box_shape(box)
+  return box_h * box_w
+
+
+def build_proposal_saliency_fn(func_name, border_ratio, purity_weight, **kwargs):
   """Builds and returns a callable to compute the proposal saliency.
 
   Args:
@@ -125,19 +172,18 @@ def build_proposal_saliency_fn(func_name, **kwargs):
       area = tf.expand_dims((ymax - ymin) * (xmax - xmin), axis=-1)
       return tf.div( 
           imgproc.calc_cumsum_2d(score_map, box), 
-          _SMALL_NUMBER + tf.cast(area, tf.float32))
+          tf.maximum(_SMALL_NUMBER, tf.cast(area, tf.float32)))
 
     return _cumsum_avg
 
   if func_name == 'saliency_grad':
-    border_ratio = 0.1
     
     def _cumsum_gradient(score_map, box):
       b, n, m, c = utils.get_tensor_shape(score_map)
       _, p, _ = utils.get_tensor_shape(box)
 
       expanded_box = _get_expanded_box(
-          box, img_h=n, img_w=m, border_ratio=0.1)
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
 
       (box_h, box_w) = _get_box_shape(box)
       (expanded_box_h, expanded_box_w) = _get_box_shape(expanded_box)
@@ -150,12 +196,71 @@ def build_proposal_saliency_fn(func_name, **kwargs):
           tf.cast(expanded_box_h * expanded_box_w - box_h * box_w, tf.float32),
           axis=-1)
 
-      avg_val = tf.div(cumsum[:, :p, :], _SMALL_NUMBER + area)
+      avg_val = tf.div(cumsum[:, :p, :], tf.maximum(_SMALL_NUMBER, area))
       avg_val_in_border = tf.div(
           cumsum[:, p:, :] - cumsum[:, :p, :],
-          _SMALL_NUMBER + area_border)
+          tf.maximum(_SMALL_NUMBER, area_border))
 
       return avg_val - avg_val_in_border
+
+    return _cumsum_gradient
+
+  if func_name == 'saliency_grad_v2':
+    
+    def _cumsum_gradient(score_map, box):
+      b, n, m, c = utils.get_tensor_shape(score_map)
+      _, p, _ = utils.get_tensor_shape(box)
+
+      box_exp = _get_expanded_box(
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
+      box_shr = _get_shrinked_box(
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
+
+      ymin, xmin, ymax, xmax= tf.unstack(box, axis=-1)
+      ymin_exp, xmin_exp, ymax_exp, xmax_exp = tf.unstack(box_exp, axis=-1)
+      ymin_shr, xmin_shr, ymax_shr, xmax_shr = tf.unstack(box_shr, axis=-1)
+
+      box_list = [box,
+          tf.stack([ymin, xmin, ymax, xmin_shr], axis=-1),
+          tf.stack([ymin, xmax_shr, ymax, xmax], axis=-1),
+          tf.stack([ymin, xmin, ymin_shr, xmax], axis=-1),
+          tf.stack([ymax_shr, xmin, ymax, xmax], axis=-1),
+          tf.stack([ymin, xmin_exp, ymax, xmin], axis=-1),
+          tf.stack([ymin, xmax, ymax, xmax_exp], axis=-1),
+          tf.stack([ymin_exp, xmin, ymin, xmax], axis=-1),
+          tf.stack([ymax, xmin, ymax_exp, xmax], axis=-1) ]
+
+      area_list = [tf.cast(_get_box_area(b), tf.float32) for b in box_list]
+      cumsum = imgproc.calc_cumsum_2d(score_map, tf.concat(box_list, axis=1))
+      cumsum_list = [cumsum[:, i * p: (i + 1) * p, :] for i in range(len(box_list))]
+
+      # Compute the averaged cumsum inside each box.
+      box_scores = []
+      cumsum_avg_list = [tf.div(
+          cumsum_list[i], 
+          tf.expand_dims(tf.maximum(_SMALL_NUMBER, area_list[i]), axis=-1)
+          ) for i in range(len(box_list))]
+
+      # The main box has to be valid, including the four shrinked boxes.
+      assert_op = tf.Assert(
+          tf.reduce_all(tf.greater(tf.stack(area_list[:5], axis=-1), 0)),
+          ["Check area of the main box failed:", area_list[0]])
+
+      with tf.control_dependencies([assert_op]):
+        # The expanded box can have ZERO area.
+        grad_list = []
+        for i in [1, 2, 3, 4]:
+          area_mask = tf.tile(
+              tf.expand_dims(tf.greater(area_list[i + 4], 0), axis=-1),
+              [1, 1, c])
+          grad = tf.where(
+              area_mask,
+              x=cumsum_avg_list[i] - cumsum_avg_list[i + 4],
+              y=tf.ones_like(cumsum_avg_list[i], dtype=tf.float32))
+          #grad = cumsum_avg_list[i] - cumsum_avg_list[i + 4]
+          grad_list.append(grad)
+
+        return purity_weight * cumsum_avg_list[0] + tf.reduce_min(tf.stack(grad_list, axis=-1), axis=-1)
 
     return _cumsum_gradient
 

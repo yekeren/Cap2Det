@@ -261,6 +261,62 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight, **kwargs)
           grad_list.append(grad)
 
         return purity_weight * cumsum_avg_list[0] + tf.reduce_min(tf.stack(grad_list, axis=-1), axis=-1)
+    return _cumsum_gradient
+
+  if func_name == 'saliency_grad_v3':
+    
+    def _cumsum_gradient(score_map, box):
+      b, n, m, c = utils.get_tensor_shape(score_map)
+      _, p, _ = utils.get_tensor_shape(box)
+
+      # Leave a border for the image border.
+      ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+      ymin, xmin = tf.maximum(ymin, 3), tf.maximum(xmin, 3)
+      ymax, xmax = tf.minimum(ymax, n - 3), tf.minimum(xmax, m - 3)
+      box = tf.stack([ymin, xmin, ymax, xmax], axis=-1)
+
+      box_exp = _get_expanded_box(
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
+      box_shr = _get_shrinked_box(
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
+
+      ymin, xmin, ymax, xmax= tf.unstack(box, axis=-1)
+      ymin_exp, xmin_exp, ymax_exp, xmax_exp = tf.unstack(box_exp, axis=-1)
+      ymin_shr, xmin_shr, ymax_shr, xmax_shr = tf.unstack(box_shr, axis=-1)
+
+      box_list = [box,
+          tf.stack([ymin, xmin, ymax, xmin_shr], axis=-1),
+          tf.stack([ymin, xmax_shr, ymax, xmax], axis=-1),
+          tf.stack([ymin, xmin, ymin_shr, xmax], axis=-1),
+          tf.stack([ymax_shr, xmin, ymax, xmax], axis=-1),
+          tf.stack([ymin, xmin_exp, ymax, xmin], axis=-1),
+          tf.stack([ymin, xmax, ymax, xmax_exp], axis=-1),
+          tf.stack([ymin_exp, xmin, ymin, xmax], axis=-1),
+          tf.stack([ymax, xmin, ymax_exp, xmax], axis=-1) ]
+
+      area_list = [tf.cast(_get_box_area(b), tf.float32) for b in box_list]
+      cumsum = imgproc.calc_cumsum_2d(score_map, tf.concat(box_list, axis=1))
+      cumsum_list = [cumsum[:, i * p: (i + 1) * p, :] for i in range(len(box_list))]
+
+      # Compute the averaged cumsum inside each box.
+      box_scores = []
+      cumsum_avg_list = [tf.div(
+          cumsum_list[i], 
+          tf.expand_dims(tf.maximum(_SMALL_NUMBER, area_list[i]), axis=-1)
+          ) for i in range(len(box_list))]
+
+      # The main box has to be valid, including the four shrinked boxes.
+      assert_op = tf.Assert(
+          tf.reduce_all(tf.greater(tf.stack(area_list, axis=-1), 0)),
+          ["Check area of the main box failed:", area_list[0]])
+
+      with tf.control_dependencies([assert_op]):
+        grad_list = []
+        for i in [1, 2, 3, 4]:
+          grad = cumsum_avg_list[i] - cumsum_avg_list[i + 4]
+          grad_list.append(grad)
+
+        return purity_weight * cumsum_avg_list[0] + tf.reduce_min(tf.stack(grad_list, axis=-1), axis=-1)
 
     return _cumsum_gradient
 

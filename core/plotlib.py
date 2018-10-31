@@ -11,8 +11,15 @@ import functools
 
 from core import utils
 
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+
 _SMALL_NUMBER = 1e-8
 _CMAP = "jet"
+_FONTFACE = cv2.FONT_HERSHEY_COMPLEX_SMALL
 
 # NOTE: THE DEFAULT CHANNEL ORDER IS RGB.
 
@@ -60,67 +67,76 @@ def _py_show_heatmap(image, saliency):
   return image_with_heatmap
 
 
-def _py_draw_rectangles(image, boxes, 
-    labels=None, color=(255, 0, 0), thickness=1, fontscale=1.0):
+def _py_draw_rectangles(image, boxes, scores, labels, 
+    color=GREEN, thickness=1, fontscale=1.0):
   """Draws boxes on the image.
 
   Args:
     image: a [height, width, 3] uint8 numpy array.
     boxes: a [batch, 4] float numpy array representing normalized boxes.
-    labels: a [batch] float or string numpy array represneting labels.
+    scores: a [batch] float numpy array representing box scores.
+    labels: a [batch] string numpy array representing labels.
     color: the color to be drawn.
     thickness: thinkness of the line.
+    fontscale: scale of the font.
 
   Returns:
     canvas: a [height, width, 3] uint8 numpy array.
   """
   height, width, _ = image.shape
-  canvas = image.copy()
 
-  for i, box in enumerate(boxes):
+  canvas = image.copy()
+  for i, (box, score, label) in enumerate(zip(boxes, scores, labels)):
+    label = label.decode('UTF8') if isinstance(label, bytes) else label
+    text = '%s: %.3lf' % (label, score) if label else '%.3lf' % (score)
+    (text_w, text_h), baseline = cv2.getTextSize(
+      text, _FONTFACE, fontscale, thickness)
+
     ymin, xmin, ymax, xmax = box
+    ymin, xmin, ymax, xmax = (
+        int(height * ymin + 0.5), int(width * xmin + 0.5),
+        int(height * ymax + 0.5), int(width * xmax + 0.5))
+
     cv2.rectangle(canvas, 
-        pt1=(int(width * xmin + 0.5), int(height * ymin + 0.5)),
-        pt2=(int(width * xmax + 0.5), int(height * ymax + 0.5)),
+        pt1=(xmin, ymin), pt2=(xmax, ymax), 
         color=color, thickness=thickness)
-    if labels is not None:
-      label = labels[i]
-      cv2.putText(canvas, 
-          '%.4lf' % (label) if type(label) == np.float32 else label,
-          org=(int(width * xmin + 0.5) + 10, int(height * ymin + 0.5) + 35),
-          fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-          fontScale=fontscale, 
-          color=color,
-          thickness=thickness)
+    cv2.rectangle(canvas, 
+        pt1=(xmin + thickness, ymin + thickness), 
+        pt2=(xmin + thickness + text_w, ymin + thickness + text_h), 
+        color=color, thickness=-1)
+    cv2.putText(canvas, text, org=(xmin, ymin + text_h),
+        fontFace=_FONTFACE, fontScale=fontscale, color=BLACK, thickness=thickness)
   return canvas
 
 
-def _py_draw_caption(image, caption, org, fontscale, 
-    color=(255, 0, 0), thickness=1):
+def _py_draw_caption(image, caption, 
+    org, color=GREEN, thickness=1, fontscale=1.0):
   """Draws boxes on the image.
 
   Args:
     image: a [height, width, 3] uint8 numpy array.
     caption: a python string.
     org: the coordinate of the text.
-    fontscale: scale of the font to be drawn.
     color: the color to be drawn.
     thickness: thinkness of the line.
+    fontscale: scale of the font to be drawn.
 
   Returns:
     canvas: a [height, width, 3] uint8 numpy array.
   """
   height, width, _ = image.shape
-  canvas = image.copy()
 
-  if type(caption) == bytes:
-    caption = caption.decode('utf-8')
-  cv2.putText(canvas, caption, 
-      org=org, 
-      fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-      fontScale=fontscale, 
-      color=color,
-      thickness=thickness)
+  canvas = image.copy()
+  caption = caption.decode('UTF8') if isinstance(caption, bytes) else caption
+  (text_w, text_h), baseline = cv2.getTextSize(
+      caption, _FONTFACE, fontscale, thickness)
+
+  cv2.rectangle(canvas, 
+      pt1=(org[0], org[1]),
+      pt2=(org[0] + text_w + thickness, org[1] + text_h + thickness), 
+      color=color, thickness=-1)
+  cv2.putText(canvas, caption, org=(org[0], org[1] + text_h), 
+      fontFace=_FONTFACE, fontScale=fontscale, color=BLACK, thickness=thickness)
   return canvas
 
 
@@ -155,7 +171,8 @@ def convert_to_heatmap(image, normalize=True):
   return tf.map_fn(_convert_fn, elems=image, dtype=tf.float32)
 
 
-def draw_caption(image, caption, org, fontscale, color, thickness):
+def draw_caption(image, caption, org, 
+    color=GREEN, thickness=1, fontscale=1.0):
   """Draws caption on the image.
 
   Args:
@@ -169,7 +186,7 @@ def draw_caption(image, caption, org, fontscale, color, thickness):
   Returns:
     canvas: a [batch, height, width, 3] uint8 tensor with caption drawn.
   """
-  def _draw_fn(image_and_caption):
+  def _draw_fn(inputs):
     """Draws the box on the image.
 
     Args:
@@ -179,9 +196,9 @@ def draw_caption(image, caption, org, fontscale, color, thickness):
     Returns:
       canvas: a [height, width, 3] uint8 tensor with box drawn.
     """
-    image, caption = image_and_caption
+    image, caption = inputs
     canvas = tf.py_func(
-        func=lambda x, y: _py_draw_caption(x, y, org, fontscale, color, thickness),
+        func=lambda x, y: _py_draw_caption(x, y, org, color, thickness, fontscale),
         inp=[image, caption], Tout=tf.uint8)
 
     canvas.set_shape(tf.TensorShape([None, None, 3]))
@@ -190,62 +207,51 @@ def draw_caption(image, caption, org, fontscale, color, thickness):
   return tf.map_fn(_draw_fn, elems=[image, caption], dtype=tf.uint8)
 
 
-def draw_rectangles(image, boxes, 
-    labels=None, color=(255, 0, 0), thickness=1, fontscale=1.0):
+def draw_rectangles(image, boxes, scores=None, labels=None, 
+    color=GREEN, thickness=1, fontscale=1.0):
   """Draws rectangle to the image.
 
   Args:
     image: a [batch, height, width, 3] uint8 tensor.
     boxes: a [batch, num_boxes, 4] float tensor representing normalized boxes,
       i.e.: [ymin, xmin, ymax, xmax], values are ranging from 0.0 to 1.0.
+    scores: a [batch, num_boxes] float tensor representing the scores to be
+      drawn on the image.
     labels: a [batch, num_boxes] string or float tensor representing the labels
       to be drawn on the image.
-    color: color to use.
-    thickness: line thickness.
+    color: color to be used.
+    thickness: the line thickness.
+    fontscale: size of the font.
+
   Returns:
-    canvas: a [batch, height, width, 3] uint8 tensor with box drawn.
+    canvas: a [batch, height, width, 3] uint8 tensor with information drawn.
   """
-  def _draw_fn(image_and_boxes):
+  def _draw_fn(inputs):
     """Draws the box on the image.
 
     Args:
       image: a [height, width, 3] float tensor.
       box: a [num_boxes, 4] float tensor representing [ymin, xmin, ymax, xmax].
+      score: a [num_boxes] float tensor representing box scores.
+      label: a [num_boxes] string tensor denoting the text to be drawn.
 
     Returns:
       canvas: a [height, width, 3] float tensor with box drawn.
     """
-    image, boxes = image_and_boxes
+    image, boxes, scores, labels = inputs
     canvas = tf.py_func(
-        func=lambda x, y: _py_draw_rectangles(x, y, color=color, thickness=thickness, fontscale=fontscale),
-        inp=[image, boxes], Tout=tf.uint8)
-
+        func=lambda x, y, z, w: _py_draw_rectangles(x, y, z, w, color=color, thickness=thickness, fontscale=fontscale),
+        inp=[image, boxes, scores, labels], Tout=tf.uint8)
     canvas.set_shape(tf.TensorShape([None, None, 3]))
     return canvas
 
-  def _draw_fn_with_labels(image_and_boxes):
-    """Draws the box on the image.
-
-    Args:
-      image: a [height, width, 3] float tensor.
-      box: a [num_boxes, 4] float tensor representing [ymin, xmin, ymax, xmax].
-      labels: a [num_boxes] float tensor.
-
-    Returns:
-      canvas: a [height, width, 3] float tensor with box drawn.
-    """
-    image, boxes, labels = image_and_boxes
-    canvas = tf.py_func(
-        func=lambda x, y, z: _py_draw_rectangles(x, y, z, color=color, thickness=thickness, fontscale=fontscale),
-        inp=[image, boxes, labels], Tout=tf.uint8)
-
-    canvas.set_shape(tf.TensorShape([None, None, 3]))
-    return canvas
-
+  batch, num_boxes, _ = utils.get_tensor_shape(boxes)
+  if scores is None:
+    scores = tf.constant([batch, num_boxes], dtype=tf.float32)
   if labels is None:
-    return tf.map_fn(_draw_fn, elems=[image, boxes], dtype=tf.uint8)
+    labels = tf.constant([batch, num_boxes], dtype=tf.string)
 
-  return tf.map_fn(_draw_fn_with_labels, elems=[image, boxes, labels], dtype=tf.uint8)
+  return tf.map_fn(_draw_fn, elems=[image, boxes, scores, labels], dtype=tf.uint8)
 
 @utils.deprecated
 def gaussian_kernel(ksize=3, sigma=-1.0):

@@ -247,9 +247,9 @@ def draw_rectangles(image, boxes, scores=None, labels=None,
 
   batch, num_boxes, _ = utils.get_tensor_shape(boxes)
   if scores is None:
-    scores = tf.constant([batch, num_boxes], dtype=tf.float32)
+    scores = tf.constant(1.0, shape=[batch, num_boxes], dtype=tf.float32)
   if labels is None:
-    labels = tf.constant([batch, num_boxes], dtype=tf.string)
+    labels = tf.constant("", shape=[batch, num_boxes], dtype=tf.string)
 
   return tf.map_fn(_draw_fn, elems=[image, boxes, scores, labels], dtype=tf.uint8)
 

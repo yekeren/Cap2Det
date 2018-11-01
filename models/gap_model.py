@@ -513,6 +513,7 @@ class Model(ModelBase):
     return { 
       GAPPredictions.vocabulary: tf.constant(vocabulary_list),
       GAPPredictions.word_saliency: word_saliency,
+      GAPPredictions.word_embedding: tf.nn.l2_normalize(word_embedding, axis=-1),
     }
 
   def _predict_similarity(self, examples):

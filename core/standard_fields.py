@@ -75,5 +75,6 @@ class GAPPredictions(object):
 
   image_saliency = "image_saliency"
   image_score_map = "image_score_map"
+  word_embedding = "word_embedding"
   word_saliency = "image_saliency"
   vocabulary = "vocabulary"

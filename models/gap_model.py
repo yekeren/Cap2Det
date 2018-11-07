@@ -28,6 +28,10 @@ _LOG_SMALL_NUMBER = 1e-4
 _SPLITTER = "-" * 128
 _INIT_WIDTH = 0.03
 
+_R_MEAN = 123.68
+_G_MEAN = 116.78
+_B_MEAN = 103.94
+
 
 class Model(ModelBase):
   """GAP model."""
@@ -116,6 +120,27 @@ class Model(ModelBase):
     scaffold = tf.train.Scaffold(init_fn=_init_fn)
     return scaffold
 
+  def _preprocess(self, image):
+    """Returns the preprocessed image.
+
+    Args:
+      image: a [batch, height, width, channels] float tensor, the values are 
+        ranging from [0.0, 255.0].
+
+    Returns:
+      preproceed_image: a [batch, height, width, channels] float tensor.
+    """
+    options = self._model_proto
+    if "inception" == options.preprocessing_method:
+      return image * 2.0 / 255.0 - 1.0
+
+    elif "vgg" == options.preprocessing_method:
+      rgb_mean = [123.68, 116.779, 103.939]
+      return image - tf.reshape(rgb_mean, [1, 1, 1, -1])
+
+    raise ValueError('Invalid preprocessing method {}'.format(options.preprocessing_method))
+
+
   def _encode_images(self, 
       image, 
       cnn_name="mobilenet_v2", 
@@ -146,7 +171,7 @@ class Model(ModelBase):
     """
     # Preprocess and extract CNN feature.
 
-    image = image * 2.0 / 255.0 - 1.0
+    image = self._preprocess(image)
     net_fn = nets_factory.get_network_fn(
         name=cnn_name,
         num_classes=None, 

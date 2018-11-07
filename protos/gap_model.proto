@@ -9,6 +9,8 @@ message GAPModel {
     optional GAPModel ext = 1001;
   }
 
+  optional string preprocessing_method = 51 [default = "inception"];
+
   // Common depth of the both modalities.
   optional int32 common_dimensions = 1 [default = 300];
 

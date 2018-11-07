@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -10,6 +9,7 @@ from nets import nets_factory
 from models.model_base import ModelBase
 from protos import gap_model_pb2
 
+from core import imgproc
 from core import utils
 from core import plotlib
 from core.standard_fields import OperationNames
@@ -96,8 +96,8 @@ class Model(ModelBase):
 
       # Look for the coco_word_embedding.
 
-      variables = tf.trainable_variables(
-          'input_layer/' + GAPVariableScopes.word_embedding)
+      variables = tf.trainable_variables('input_layer/' +
+                                         GAPVariableScopes.word_embedding)
       if len(variables) != 1:
         raise ValueError("The coco_word_embedding should be unique.")
       coco_word_embedding = variables[0]
@@ -114,8 +114,8 @@ class Model(ModelBase):
         values = np.concatenate([values, np.expand_dims(oov, 0)], axis=0)
 
         coco_word_embedding.load(values, sess)
-        tf.logging.info("Load embedding weights from %s, shape=%s.", 
-            options.vocabulary_weights_file, values.shape)
+        tf.logging.info("Load embedding weights from %s, shape=%s.",
+                        options.vocabulary_weights_file, values.shape)
 
     scaffold = tf.train.Scaffold(init_fn=_init_fn)
     return scaffold
@@ -140,18 +140,16 @@ class Model(ModelBase):
 
     raise ValueError('Invalid preprocessing method {}'.format(options.preprocessing_method))
 
-
-  def _encode_images(self, 
-      image, 
-      cnn_name="mobilenet_v2", 
-      cnn_trainable=False,
-      cnn_weight_decay=1e-4,
-      cnn_feature_map="layer_18/output",
-      cnn_dropout_keep_prob=1.0,
-      cnn_checkpoint=None,
-      cnn_scope="CNN",
-      is_training=False):
-
+  def _encode_images(self,
+                     image,
+                     cnn_name="mobilenet_v2",
+                     cnn_trainable=False,
+                     cnn_weight_decay=1e-4,
+                     cnn_feature_map="layer_18/output",
+                     cnn_dropout_keep_prob=1.0,
+                     cnn_checkpoint=None,
+                     cnn_scope="CNN",
+                     is_training=False):
     """Builds image model.
 
     Args:
@@ -174,8 +172,8 @@ class Model(ModelBase):
     image = self._preprocess(image)
     net_fn = nets_factory.get_network_fn(
         name=cnn_name,
-        num_classes=None, 
-        weight_decay=cnn_weight_decay, 
+        num_classes=None,
+        weight_decay=cnn_weight_decay,
         is_training=cnn_trainable and is_training)
 
     with tf.variable_scope(cnn_scope):
@@ -183,17 +181,15 @@ class Model(ModelBase):
     feature_map = end_points[cnn_feature_map]
 
     feature_map = tf.contrib.layers.dropout(
-        feature_map, 
-        keep_prob=cnn_dropout_keep_prob, 
-        is_training=is_training)
+        feature_map, keep_prob=cnn_dropout_keep_prob, is_training=is_training)
 
     # Load pre-trained model from checkpoint.
 
     if not cnn_checkpoint:
       tf.logging.warning("Pre-trained checkpoint path is not provided!")
     else:
-      tf.train.init_from_checkpoint(cnn_checkpoint, 
-          assignment_map={"/": GAPVariableScopes.cnn + "/"})
+      tf.train.init_from_checkpoint(
+          cnn_checkpoint, assignment_map={"/": GAPVariableScopes.cnn + "/"})
 
     return feature_map
 
@@ -228,26 +224,27 @@ class Model(ModelBase):
     scope_prefix = scope[:-len("_embedding")]
 
     (categorical_column
-     ) = tf.feature_column.categorical_column_with_vocabulary_list(
-       key=scope_prefix,
-       vocabulary_list=vocabulary_list,
-       dtype=tf.string,
-       num_oov_buckets=1)
+    ) = tf.feature_column.categorical_column_with_vocabulary_list(
+        key=scope_prefix,
+        vocabulary_list=vocabulary_list,
+        dtype=tf.string,
+        num_oov_buckets=1)
 
     embedding_column = tf.feature_column.embedding_column(
         categorical_column, dimension=common_dimensions, max_norm=1.0)
 
     word_embedding = tf.feature_column.input_layer(
-        {scope_prefix: words}, feature_columns=[embedding_column])
+        {
+            scope_prefix: words
+        }, feature_columns=[embedding_column])
     return word_embedding
 
-  def _encode_captions(self, 
-      caption_strings, 
-      vocabulary_list,
-      common_dimensions=300,
-      scope="coco_word_embedding",
-      is_training=False):
-
+  def _encode_captions(self,
+                       caption_strings,
+                       vocabulary_list,
+                       common_dimensions=300,
+                       scope="coco_word_embedding",
+                       is_training=False):
     """Builds caption model.
 
     Args:
@@ -261,25 +258,25 @@ class Model(ModelBase):
       text_feature: embedding of each word, a [num_captions_in_batch, 
         max_caption_length, common_dimensions] tensor.
     """
-    (num_captions_in_batch, max_caption_length
-     ) = utils.get_tensor_shape(caption_strings)
+    (num_captions_in_batch,
+     max_caption_length) = utils.get_tensor_shape(caption_strings)
 
     caption_strings_flattened = tf.reshape(caption_strings, [-1])
 
     text_feature_flattened = self._encode_words(
-        caption_strings_flattened, 
-        common_dimensions, 
-        vocabulary_list)
+        caption_strings_flattened, common_dimensions, vocabulary_list)
 
     text_feature = tf.reshape(
-        text_feature_flattened, 
+        text_feature_flattened,
         [num_captions_in_batch, max_caption_length, common_dimensions])
 
     return text_feature
 
-  def _calc_pairwise_similarity(self, 
-      image_feature, text_feature, dropout_keep_prob=1.0, is_training=False):
-
+  def _calc_pairwise_similarity(self,
+                                image_feature,
+                                text_feature,
+                                dropout_keep_prob=1.0,
+                                is_training=False):
     """Computes the pairwise dot-product similarity between image and caption.
 
     Args:
@@ -294,7 +291,8 @@ class Model(ModelBase):
       similarity: dot-product similarity, a [batch, num_regions,
         num_captions_in_batch, max_caption_length] float32 tensor.
     """
-    if image_feature.get_shape()[-1].value != text_feature.get_shape()[-1].value:
+    if image_feature.get_shape()[-1].value != text_feature.get_shape(
+    )[-1].value:
       raise ValueError("The common dimensions of image/text should be matched.")
 
     image_feature = tf.expand_dims(tf.expand_dims(image_feature, 2), 2)
@@ -306,12 +304,12 @@ class Model(ModelBase):
         is_training=is_training)
     return tf.reduce_sum(dot_product, axis=-1)
 
-  def _project_images(self, 
-      feature_map, 
-      common_dimensions=300, 
-      scope="image_proj", 
-      hyperparams=None, 
-      is_training=False):
+  def _project_images(self,
+                      feature_map,
+                      common_dimensions=300,
+                      scope="image_proj",
+                      hyperparams=None,
+                      is_training=False):
     """Adds additional 1x1 conv layer to project image features.
 
     Args:
@@ -332,9 +330,11 @@ class Model(ModelBase):
             activation_fn=None)
     return feature_map
 
-  def _calc_saliency_score(self, 
-      inputs, scope, hyperparams=None, is_training=False):
-
+  def _calc_saliency_score(self,
+                           inputs,
+                           scope,
+                           hyperparams=None,
+                           is_training=False):
     """Calculates saliency score.
 
     Args:
@@ -367,14 +367,17 @@ class Model(ModelBase):
     if not options.use_saliency_score:
       raise ValueError("The flag of `use_saliency_score` should be set.")
 
-    (image, category_strings) = (
-       examples[InputDataFields.image],
-       examples[InputDataFields.category_strings])
+    (image, category_strings) = (examples[InputDataFields.image],
+                                 examples[InputDataFields.category_strings])
 
-    # Extract image feature, shape = 
+    # Keep image size for resizing saliency and activation map later.
+    height, width = utils.get_tensor_shape(image)[1:3]
+
+    # Extract image feature, shape =
     #   [batch, feature_height * feature_width, common_dimensions].
 
-    image_feature = self._encode_images(image,
+    image_feature = self._encode_images(
+        image,
         cnn_name=options.cnn_name,
         cnn_trainable=options.cnn_trainable,
         cnn_weight_decay=options.cnn_weight_decay,
@@ -384,20 +387,21 @@ class Model(ModelBase):
         cnn_scope=GAPVariableScopes.cnn,
         is_training=is_training)
 
-    image_feature = self._project_images(image_feature, 
+    image_feature = self._project_images(
+        image_feature,
         common_dimensions=options.common_dimensions,
         scope=GAPVariableScopes.image_proj,
         hyperparams=options.image_proj_hyperparams,
         is_training=is_training)
 
-    (batch, feature_height, feature_width, common_dimensions
-     ) = utils.get_tensor_shape(image_feature)
+    (batch, feature_height, feature_width,
+     common_dimensions) = utils.get_tensor_shape(image_feature)
     image_feature = tf.reshape(image_feature, [batch, -1, common_dimensions])
 
     # Predict saliency score, shape = [batch, num_regions].
 
     image_saliency = self._calc_saliency_score(
-        image_feature, 
+        image_feature,
         scope=GAPVariableScopes.image_saliency,
         hyperparams=options.image_saliency_hyperparams,
         is_training=is_training)
@@ -407,10 +411,10 @@ class Model(ModelBase):
     vocabulary_list = self._read_vocabulary(options.vocabulary_file)
     tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
 
-    category_feature = tf.expand_dims(self._encode_words(
-        category_strings,
-        options.common_dimensions,
-        vocabulary_list), axis=0)
+    category_feature = tf.expand_dims(
+        self._encode_words(category_strings, options.common_dimensions,
+                           vocabulary_list),
+        axis=0)
     similarity = self._calc_pairwise_similarity(
         image_feature=tf.nn.l2_normalize(image_feature, axis=-1),
         text_feature=tf.nn.l2_normalize(category_feature, axis=-1),
@@ -419,33 +423,60 @@ class Model(ModelBase):
 
     # Compute the category-aware score map.
     #   similarity shape = [batch, feature_height, feature_width, num_classes].
-    #   image_saliency shape = [batch, feature_height, feature_width].
+    #   image_saliency shape = [batch, feature_height, feature_width, 1].
 
     similarity = tf.reshape(
-        tf.squeeze(similarity, axis=2), 
+        tf.squeeze(similarity, axis=2),
         [batch, feature_height, feature_width, -1])
     image_attention = tf.reshape(
-        tf.nn.softmax(image_saliency, axis=-1), 
+        tf.nn.softmax(image_saliency, axis=-1),
         [batch, feature_height, feature_width])
-    image_saliency = tf.reshape(
-        image_saliency, [-1, feature_height, feature_width])
+    image_saliency = tf.reshape(image_saliency,
+                                [-1, feature_height, feature_width])
 
     # Normalize score map
 
     value_min = tf.reduce_min(image_saliency, axis=[1, 2], keepdims=True)
     value_max = tf.reduce_max(image_saliency, axis=[1, 2], keepdims=True)
-    image_saliency_normalized = (image_saliency - value_min) / (_SMALL_NUMBER + value_max - value_min)
+    image_saliency_normalized = (image_saliency - value_min) / (
+        _SMALL_NUMBER + value_max - value_min)
 
     value_min = tf.reduce_min(similarity, axis=[1, 2, 3], keepdims=True)
     value_max = tf.reduce_max(similarity, axis=[1, 2, 3], keepdims=True)
-    similarity_normalized = (similarity - value_min) / (_SMALL_NUMBER + value_max - value_min)
+    similarity_normalized = (similarity - value_min) / (
+        _SMALL_NUMBER + value_max - value_min)
 
     score_map = similarity * tf.expand_dims(image_saliency_normalized, axis=-1)
+
     #score_map = similarity_normalized * tf.expand_dims(image_saliency_normalized, axis=-1)
 
-    return { 
-      GAPPredictions.image_saliency: image_saliency,
-      GAPPredictions.image_score_map: score_map }
+    def resize_fn(image, ksize=32):
+      """Upsamples the image and applies smoothing to the image.
+
+      Args:
+        image: a [batch, feature_height, feature_width, channels] float tensor
+          representing the feature map.
+        ksize: aperture size of the Gaussian kernel, 0 disables gaussan filter.
+
+      Returns:
+        resized_image: a [batch, height, width, channels] float tensor
+          representing the resized image.
+      """
+      resized_image = tf.image.resize_images(image, [height, width])
+      if ksize:
+        smoothed_image = imgproc.gaussian_filter(resized_image, ksize=ksize)
+      else:
+        smoothed_image = resized_image
+
+      return smoothed_image
+
+    image_saliency = resize_fn(tf.expand_dims(image_saliency, axis=-1))
+    score_map = resize_fn(score_map)
+
+    return {
+        GAPPredictions.image_saliency: image_saliency,
+        GAPPredictions.image_score_map: score_map
+    }
 
   @utils.deprecated
   def _predict_image_saliency(self, examples):
@@ -465,10 +496,11 @@ class Model(ModelBase):
 
     image = examples[InputDataFields.image]
 
-    # Extract image feature, shape = 
+    # Extract image feature, shape =
     #   [batch, feature_height * feature_width, common_dimensions].
 
-    image_feature = self._encode_images(image,
+    image_feature = self._encode_images(
+        image,
         cnn_name=options.cnn_name,
         cnn_trainable=options.cnn_trainable,
         cnn_weight_decay=options.cnn_weight_decay,
@@ -478,14 +510,15 @@ class Model(ModelBase):
         cnn_scope=GAPVariableScopes.cnn,
         is_training=is_training)
 
-    image_feature = self._project_images(image_feature, 
+    image_feature = self._project_images(
+        image_feature,
         common_dimensions=options.common_dimensions,
         scope=GAPVariableScopes.image_proj,
         hyperparams=options.image_proj_hyperparams,
         is_training=is_training)
 
-    (batch, feature_height, feature_width, common_dimensions
-     ) = utils.get_tensor_shape(image_feature)
+    (batch, feature_height, feature_width,
+     common_dimensions) = utils.get_tensor_shape(image_feature)
     image_feature = tf.reshape(image_feature, [batch, -1, common_dimensions])
 
     # Predict saliency score.
@@ -493,13 +526,13 @@ class Model(ModelBase):
     #   caption_saliency shape = [num_captions_in_batch, max_caption_length].
 
     image_saliency = self._calc_saliency_score(
-        image_feature, 
+        image_feature,
         scope=GAPVariableScopes.image_saliency,
         hyperparams=options.image_saliency_hyperparams,
         is_training=is_training)
-    return { 
-      GAPPredictions.image_saliency: tf.reshape(
-          image_saliency, [-1, feature_height, feature_width]),
+    return {
+        GAPPredictions.image_saliency:
+        tf.reshape(image_saliency, [-1, feature_height, feature_width]),
     }
 
   def _predict_word_saliency(self, examples):
@@ -523,7 +556,7 @@ class Model(ModelBase):
 
     word_embedding = self._encode_words(
         vocabulary_list, options.common_dimensions, vocabulary_list)
-    
+
     if options.l2_norm_for_word_saliency:
       word_embedding = tf.nn.l2_normalize(word_embedding, axis=-1)
 
@@ -535,10 +568,11 @@ class Model(ModelBase):
         hyperparams=options.word_saliency_hyperparams,
         is_training=is_training)
 
-    return { 
-      GAPPredictions.vocabulary: tf.constant(vocabulary_list),
-      GAPPredictions.word_saliency: word_saliency,
-      GAPPredictions.word_embedding: tf.nn.l2_normalize(word_embedding, axis=-1),
+    return {
+        GAPPredictions.vocabulary: tf.constant(vocabulary_list),
+        GAPPredictions.word_saliency: word_saliency,
+        GAPPredictions.word_embedding: tf.nn.l2_normalize(
+            word_embedding, axis=-1),
     }
 
   def _predict_similarity(self, examples):
@@ -555,15 +589,15 @@ class Model(ModelBase):
 
     # Extracts input data fields.
 
-    (image, image_id,
-     num_captions, caption_strings, caption_lengths) = (
-       examples[InputDataFields.image],
-       examples[InputDataFields.image_id],
-       examples[InputDataFields.num_captions],
-       examples[InputDataFields.caption_strings],
-       examples[InputDataFields.caption_lengths])
+    (image, image_id, num_captions, caption_strings,
+     caption_lengths) = (examples[InputDataFields.image],
+                         examples[InputDataFields.image_id],
+                         examples[InputDataFields.num_captions],
+                         examples[InputDataFields.caption_strings],
+                         examples[InputDataFields.caption_lengths])
 
-    image_feature = self._encode_images(image,
+    image_feature = self._encode_images(
+        image,
         cnn_name=options.cnn_name,
         cnn_trainable=options.cnn_trainable,
         cnn_weight_decay=options.cnn_weight_decay,
@@ -573,23 +607,23 @@ class Model(ModelBase):
         cnn_scope=GAPVariableScopes.cnn,
         is_training=is_training)
 
-    (image_ids_gathered, 
-     caption_strings_gathered, 
+    (image_ids_gathered, caption_strings_gathered,
      caption_lengths_gathered) = model_utils.gather_in_batch_captions(
-       image_id, num_captions, caption_strings, caption_lengths)
+         image_id, num_captions, caption_strings, caption_lengths)
 
-    # Extract image feature, shape = 
+    # Extract image feature, shape =
     #   [batch, feature_height * feature_width, common_dimensions].
 
     with tf.name_scope(OperationNames.image_model):
-      image_feature = self._project_images(image_feature, 
+      image_feature = self._project_images(
+          image_feature,
           common_dimensions=options.common_dimensions,
           scope=GAPVariableScopes.image_proj,
           hyperparams=options.image_proj_hyperparams,
           is_training=is_training)
 
-      (batch, feature_height, feature_width, common_dimensions
-       ) = utils.get_tensor_shape(image_feature)
+      (batch, feature_height, feature_width,
+       common_dimensions) = utils.get_tensor_shape(image_feature)
       image_feature = tf.reshape(image_feature, [batch, -1, common_dimensions])
 
     # Extract caption feature, shape =
@@ -606,8 +640,8 @@ class Model(ModelBase):
           scope=GAPVariableScopes.word_embedding,
           is_training=is_training)
 
-      (num_captions_in_batch, max_caption_length, common_dimensions
-       ) = utils.get_tensor_shape(caption_feature)
+      (num_captions_in_batch, max_caption_length,
+       common_dimensions) = utils.get_tensor_shape(caption_feature)
 
     # Calculates similarity matrix, shape=[batch, num_captions_in_batch].
 
@@ -626,13 +660,13 @@ class Model(ModelBase):
       similarity = similarity * tf.expand_dims(tf.expand_dims(word_mask, 0), 0)
 
       if options.use_saliency_score:
-        
+
         # Predict saliency score.
         #   image_saliency shape = [batch, num_regions].
         #   caption_saliency shape = [num_captions_in_batch, max_caption_length].
 
         image_saliency = self._calc_saliency_score(
-            image_feature, 
+            image_feature,
             scope=GAPVariableScopes.image_saliency,
             hyperparams=options.image_saliency_hyperparams,
             is_training=is_training)
@@ -651,16 +685,20 @@ class Model(ModelBase):
         caption_attention = utils.masked_softmax(
             caption_saliency, word_mask, dim=-1)
 
-        tf.summary.scalar('loss/image_attention_max', 
+        tf.summary.scalar(
+            'loss/image_attention_max',
             tf.reduce_mean(tf.reduce_max(image_attention, axis=1)))
-        tf.summary.scalar('loss/image_attention_min', 
+        tf.summary.scalar(
+            'loss/image_attention_min',
             tf.reduce_mean(tf.reduce_min(image_attention, axis=1)))
-        tf.summary.scalar('loss/caption_attention_max', 
+        tf.summary.scalar(
+            'loss/caption_attention_max',
             tf.reduce_mean(
-              utils.masked_maximum(caption_attention, word_mask, dim=1)))
-        tf.summary.scalar('loss/caption_attention_min', 
+                utils.masked_maximum(caption_attention, word_mask, dim=1)))
+        tf.summary.scalar(
+            'loss/caption_attention_min',
             tf.reduce_mean(
-              utils.masked_minimum(caption_attention, word_mask, dim=1)))
+                utils.masked_minimum(caption_attention, word_mask, dim=1)))
 
         if options.image_regularizer_weight > 0.0:
           log_image_attention = tf.log(
@@ -677,7 +715,7 @@ class Model(ModelBase):
           loss = tf.multiply(
               options.text_regularizer_weight,
               tf.reduce_mean(
-                tf.reduce_sum(log_caption_attention * word_mask, axis=1)))
+                  tf.reduce_sum(log_caption_attention * word_mask, axis=1)))
           tf.losses.add_loss(loss)
           tf.summary.scalar('loss/caption_attention_log_loss', loss)
 
@@ -691,29 +729,32 @@ class Model(ModelBase):
 
         similarity = tf.reduce_sum(similarity * saliency_mask, axis=[1, 3])
 
-        self.visualize(image, 
+        self.visualize(
+            image,
             tf.reshape(image_saliency, [-1, feature_height, feature_width]))
         tf.summary.histogram('image_saliency', image_saliency)
         tf.summary.histogram('text_saliency', caption_saliency)
 
       else:
-        
+
         # Simple Global Average Pooling.
 
         similarity = tf.div(
-            tf.reduce_sum(similarity, axis=[1, 3]),
-            _SMALL_NUMBER + tf.cast(feature_width * feature_height *
-              caption_lengths_gathered, tf.float32))
+            tf.reduce_sum(similarity, axis=[1, 3]), _SMALL_NUMBER + tf.cast(
+                feature_width * feature_height * caption_lengths_gathered,
+                tf.float32))
 
     predictions = {
-      GAPPredictions.image_id: image_id,
-      GAPPredictions.image_ids_gathered: image_ids_gathered,
-      GAPPredictions.similarity: similarity,
+        GAPPredictions.image_id: image_id,
+        GAPPredictions.image_ids_gathered: image_ids_gathered,
+        GAPPredictions.similarity: similarity,
     }
     return predictions
 
-  def build_prediction(self, examples, 
-      prediction_task=GAPPredictionTasks.similarity, **kwargs):
+  def build_prediction(self,
+                       examples,
+                       prediction_task=GAPPredictionTasks.similarity,
+                       **kwargs):
     """Builds tf graph for prediction.
 
     Args:
@@ -738,8 +779,10 @@ class Model(ModelBase):
 
     raise ValueError("Invalid prediction task %s" % (prediction_task))
 
-  def visualize(self, image, saliency, 
-      interpolation=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
+  def visualize(self,
+                image,
+                saliency,
+                interpolation=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
     """Visualizes images to tensorboard.
 
     Args:
@@ -750,8 +793,7 @@ class Model(ModelBase):
 
     image = image / 255.0
     heatmap = plotlib.convert_to_heatmap(saliency, normalize=True)
-    heatmap = tf.image.resize_images(
-        heatmap, [height, width], interpolation)
+    heatmap = tf.image.resize_images(heatmap, [height, width], interpolation)
 
     heatmap = plotlib.gaussian_filter(heatmap, ksize=32)
 
@@ -771,10 +813,10 @@ class Model(ModelBase):
 
     # Extracts tensors and shapes.
 
-    (image_id, image_ids_gathered, similarity) = (
-       predictions[GAPPredictions.image_id],
-       predictions[GAPPredictions.image_ids_gathered],
-       predictions[GAPPredictions.similarity])
+    (image_id, image_ids_gathered,
+     similarity) = (predictions[GAPPredictions.image_id],
+                    predictions[GAPPredictions.image_ids_gathered],
+                    predictions[GAPPredictions.similarity])
 
     # Triplet loss.
     # Distance matrix, shape = [batch, num_captions_in_batch].
@@ -782,9 +824,10 @@ class Model(ModelBase):
     with tf.name_scope(OperationNames.mine_in_batch_triplet):
       distance = 1.0 - similarity
 
-      pos_mask = tf.cast(tf.equal(
-          tf.expand_dims(image_id, axis=1), 
-          tf.expand_dims(image_ids_gathered, axis=0)), tf.float32)
+      pos_mask = tf.cast(
+          tf.equal(
+              tf.expand_dims(image_id, axis=1),
+              tf.expand_dims(image_ids_gathered, axis=0)), tf.float32)
       neg_mask = 1.0 - pos_mask
 
       distance_ap = utils.masked_maximum(distance, pos_mask)
@@ -800,7 +843,7 @@ class Model(ModelBase):
         negatives_outside = utils.masked_minimum(distance, mask)
 
         # negatives_inside: largest D_an.
-        
+
         negatives_inside = utils.masked_maximum(distance, neg_mask)
 
         # distance_an: the semihard negatives.
@@ -808,8 +851,8 @@ class Model(ModelBase):
         mask_condition = tf.greater(
             tf.reduce_sum(mask, axis=1, keepdims=True), 0.0)
 
-        distance_an = tf.where(
-            mask_condition, negatives_outside, negatives_inside)
+        distance_an = tf.where(mask_condition, negatives_outside,
+                               negatives_inside)
 
       else:
 
@@ -819,12 +862,13 @@ class Model(ModelBase):
 
     # Triplet loss.
 
-    losses = tf.maximum(
-        distance_ap - distance_an + options.triplet_loss_margin, 0)
+    losses = tf.maximum(distance_ap - distance_an + options.triplet_loss_margin,
+                        0)
 
     num_loss_examples = tf.count_nonzero(losses, dtype=tf.float32)
     loss = tf.div(
-        tf.reduce_sum(losses), _SMALL_NUMBER + num_loss_examples,
+        tf.reduce_sum(losses),
+        _SMALL_NUMBER + num_loss_examples,
         name="triplet_loss")
 
     tf.summary.scalar('loss/num_loss_examples', num_loss_examples)
@@ -845,17 +889,17 @@ class Model(ModelBase):
 
     # Extracts tensors and shapes.
 
-    (image_id, image_ids_gathered, similarity) = (
-       predictions[GAPPredictions.image_id],
-       predictions[GAPPredictions.image_ids_gathered],
-       predictions[GAPPredictions.similarity])
+    (image_id, image_ids_gathered,
+     similarity) = (predictions[GAPPredictions.image_id],
+                    predictions[GAPPredictions.image_ids_gathered],
+                    predictions[GAPPredictions.similarity])
 
     # Process retrieval on the in-batch eval dataset.
 
     with tf.name_scope(OperationNames.caption_retrieval):
       retrieved_index = tf.argmax(similarity, axis=1)
-      predicted_alignment = tf.gather(
-          image_ids_gathered, tf.argmax(similarity, axis=1))
+      predicted_alignment = tf.gather(image_ids_gathered,
+                                      tf.argmax(similarity, axis=1))
 
     # Calculate accuracy.
 

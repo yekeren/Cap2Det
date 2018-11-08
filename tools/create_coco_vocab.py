@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -15,14 +14,12 @@ tf.flags.DEFINE_string('train_caption_annotations_file', '',
 tf.flags.DEFINE_string('glove_file', '',
                        'Path to the pre-trained GloVe embedding file.')
 
-tf.flags.DEFINE_string('vocabulary_file', '',
-                       'Vocabulary file to export.')
+tf.flags.DEFINE_string('vocabulary_file', '', 'Vocabulary file to export.')
 
 tf.flags.DEFINE_string('vocabulary_weights_file', '',
                        'Vocabulary weights file to export.')
 
-tf.flags.DEFINE_integer('min_word_freq', 20, 
-                        'Minimum word frequency.')
+tf.flags.DEFINE_integer('min_word_freq', 20, 'Minimum word frequency.')
 
 FLAGS = tf.flags.FLAGS
 
@@ -62,7 +59,7 @@ def _load_glove(filename):
     word, vec = items[0], [float(v) for v in items[1:]]
     assert len(vec) == embedding_size
     word2vec[word] = np.array(vec)
-    if i % 10000== 0:
+    if i % 10000 == 0:
       tf.logging.info('On load %s/%s', i, len(lines))
   return word2vec
 
@@ -80,7 +77,9 @@ def main(_):
     for word in _process_caption(annotation['caption']):
       word_freq[word] += 1
 
-  word_freq = [x for x in word_freq.most_common() if x[1] >= FLAGS.min_word_freq]
+  word_freq = [
+      x for x in word_freq.most_common() if x[1] >= FLAGS.min_word_freq
+  ]
   with tf.gfile.GFile(FLAGS.vocabulary_file, 'w') as fp:
     for word, freq in word_freq:
       fp.write('%s\n' % (word))

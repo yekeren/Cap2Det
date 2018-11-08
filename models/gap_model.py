@@ -138,7 +138,8 @@ class Model(ModelBase):
       rgb_mean = [123.68, 116.779, 103.939]
       return image - tf.reshape(rgb_mean, [1, 1, 1, -1])
 
-    raise ValueError('Invalid preprocessing method {}'.format(options.preprocessing_method))
+    raise ValueError('Invalid preprocessing method {}'.format(
+        options.preprocessing_method))
 
   def _encode_images(self,
                      image,

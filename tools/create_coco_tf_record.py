@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 r"""Convert raw COCO dataset to TFRecord for object_detection.
 
 Please note that this tool creates sharded output files.
@@ -50,17 +49,13 @@ from object_detection.dataset_tools import tf_record_creation_util
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
 
-
 flags = tf.app.flags
-tf.flags.DEFINE_boolean('include_masks', False,
-                        'Whether to include instance segmentations masks '
-                        '(PNG encoded) in the result. default: False.')
-tf.flags.DEFINE_string('train_image_file', '',
-                       'Training image zip file.')
-tf.flags.DEFINE_string('val_image_file', '',
-                       'Validation image zip file.')
-tf.flags.DEFINE_string('test_image_file', '',
-                       'Test image zip file.')
+tf.flags.DEFINE_boolean(
+    'include_masks', False, 'Whether to include instance segmentations masks '
+    '(PNG encoded) in the result. default: False.')
+tf.flags.DEFINE_string('train_image_file', '', 'Training image zip file.')
+tf.flags.DEFINE_string('val_image_file', '', 'Validation image zip file.')
+tf.flags.DEFINE_string('test_image_file', '', 'Test image zip file.')
 tf.flags.DEFINE_string('train_annotations_file', '',
                        'Training annotations JSON file.')
 tf.flags.DEFINE_string('train_caption_annotations_file', '',
@@ -192,40 +187,24 @@ def create_tf_example(image,
   caption_string = [caption.encode('utf8') for caption in caption_string]
 
   feature_dict = {
-      'image/height':
-          dataset_util.int64_feature(image_height),
-      'image/width':
-          dataset_util.int64_feature(image_width),
-      'image/filename':
-          dataset_util.bytes_feature(filename.encode('utf8')),
-      'image/source_id':
-          dataset_util.bytes_feature(str(image_id).encode('utf8')),
-      'image/key/sha256':
-          dataset_util.bytes_feature(key.encode('utf8')),
-      'image/encoded':
-          dataset_util.bytes_feature(encoded_jpg),
-      'image/format':
-          dataset_util.bytes_feature('jpeg'.encode('utf8')),
-      'image/object/bbox/xmin':
-          dataset_util.float_list_feature(xmin),
-      'image/object/bbox/xmax':
-          dataset_util.float_list_feature(xmax),
-      'image/object/bbox/ymin':
-          dataset_util.float_list_feature(ymin),
-      'image/object/bbox/ymax':
-          dataset_util.float_list_feature(ymax),
-      'image/object/class/label':
-          dataset_util.int64_list_feature(category_ids),
-      'image/object/is_crowd':
-          dataset_util.int64_list_feature(is_crowd),
-      'image/object/area':
-          dataset_util.float_list_feature(area),
-      'image/caption/string':
-          dataset_util.bytes_list_feature(caption_string),
-      'image/caption/offset': 
-          dataset_util.int64_list_feature(caption_offset),
-      'image/caption/length': 
-          dataset_util.int64_list_feature(caption_length),
+      'image/height': dataset_util.int64_feature(image_height),
+      'image/width': dataset_util.int64_feature(image_width),
+      'image/filename': dataset_util.bytes_feature(filename.encode('utf8')),
+      'image/source_id': dataset_util.bytes_feature(
+          str(image_id).encode('utf8')),
+      'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
+      'image/encoded': dataset_util.bytes_feature(encoded_jpg),
+      'image/format': dataset_util.bytes_feature('jpeg'.encode('utf8')),
+      'image/object/bbox/xmin': dataset_util.float_list_feature(xmin),
+      'image/object/bbox/xmax': dataset_util.float_list_feature(xmax),
+      'image/object/bbox/ymin': dataset_util.float_list_feature(ymin),
+      'image/object/bbox/ymax': dataset_util.float_list_feature(ymax),
+      'image/object/class/label': dataset_util.int64_list_feature(category_ids),
+      'image/object/is_crowd': dataset_util.int64_list_feature(is_crowd),
+      'image/object/area': dataset_util.float_list_feature(area),
+      'image/caption/string': dataset_util.bytes_list_feature(caption_string),
+      'image/caption/offset': dataset_util.int64_list_feature(caption_offset),
+      'image/caption/length': dataset_util.int64_list_feature(caption_length),
   }
   if include_masks:
     feature_dict['image/object/mask'] = (
@@ -272,12 +251,13 @@ def _create_tf_record_from_coco_annotations(
       with tf.gfile.GFile(caption_annotations_file, 'r') as cap_fid:
         caption_groundtruth_data = json.load(cap_fid)
 
-        assert (groundtruth_data['images'] ==
-            caption_groundtruth_data['images']), 'The detection and caption sets are different.'
+        assert (groundtruth_data['images'] == caption_groundtruth_data['images']
+               ), 'The detection and caption sets are different.'
 
         if 'annotations' in caption_groundtruth_data:
           tf.logging.info(
-              'Found caption groundtruth annotations. Building annotations index.')
+              'Found caption groundtruth annotations. Building annotations index.'
+          )
           for annotation in caption_groundtruth_data['annotations']:
             image_id = annotation['image_id']
             if image_id not in caption_annotations_index:

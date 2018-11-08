@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -25,8 +24,9 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 224, 224, 3])
-    feature_map = model._encode_images(image, 
-        cnn_name="mobilenet_v1", 
+    feature_map = model._encode_images(
+        image,
+        cnn_name="mobilenet_v1",
         cnn_feature_map="Conv2d_13_pointwise",
         is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 7, 7, 1024])
@@ -36,8 +36,9 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 448, 448, 3])
-    feature_map = model._encode_images(image, 
-        cnn_name="mobilenet_v1", 
+    feature_map = model._encode_images(
+        image,
+        cnn_name="mobilenet_v1",
         cnn_feature_map="Conv2d_13_pointwise",
         is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 14, 14, 1024])
@@ -47,8 +48,9 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 224, 224, 3])
-    feature_map = model._encode_images(image, 
-        cnn_name="mobilenet_v2", 
+    feature_map = model._encode_images(
+        image,
+        cnn_name="mobilenet_v2",
         cnn_feature_map="layer_18/output",
         is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 7, 7, 320])
@@ -58,15 +60,17 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     image = tf.random_uniform(shape=[32, 448, 448, 3])
-    feature_map = model._encode_images(image, 
-        cnn_name="mobilenet_v2", 
+    feature_map = model._encode_images(
+        image,
+        cnn_name="mobilenet_v2",
         cnn_feature_map="layer_18/output",
         is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 14, 14, 320])
 
   def test_project_images(self):
     hyperparams = hyperparams_pb2.Hyperparams()
-    text_format.Merge(r"""
+    text_format.Merge(
+        r"""
         op: CONV
         activation: NONE
         regularizer {
@@ -96,8 +100,11 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     inputs = tf.random_uniform(shape=[32, 7, 7, 320])
-    feature_map = model._project_images(inputs, 
-        common_dimensions=50, hyperparams=hyperparams, is_training=False)
+    feature_map = model._project_images(
+        inputs,
+        common_dimensions=50,
+        hyperparams=hyperparams,
+        is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 7, 7, 50])
 
     # Project to 199-D feature space.
@@ -105,8 +112,11 @@ class GAPModelTest(tf.test.TestCase):
     tf.reset_default_graph()
 
     inputs = tf.random_uniform(shape=[32, 14, 14, 320])
-    feature_map = model._project_images(inputs,
-        common_dimensions=199, hyperparams=hyperparams, is_training=False)
+    feature_map = model._project_images(
+        inputs,
+        common_dimensions=199,
+        hyperparams=hyperparams,
+        is_training=False)
     self.assertAllEqual(feature_map.get_shape().as_list(), [32, 14, 14, 199])
 
   def test_encode_captions(self):
@@ -160,26 +170,26 @@ class GAPModelTest(tf.test.TestCase):
       text_feature = tf.placeholder(tf.float32, shape=[None, None, None])
 
       similarity = model._calc_pairwise_similarity(image_feature, text_feature)
-      
+
       with self.test_session() as sess:
 
         # batch=2, num_regions=3, num_captions=2, max_caption_length=3.
 
-        similarity_value = sess.run(similarity, feed_dict={
-            image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
-            text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
+        similarity_value = sess.run(
+            similarity,
+            feed_dict={
+                image_feature: [[[1], [0], [0]], [[0], [2], [2]]],
+                text_feature: [[[0.1], [0.2], [0.3]], [[0.4], [0.5], [0.6]]],
             })
 
-        self.assertAllClose(similarity_value, 
-            [[
-            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]], 
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-            ], [
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 
-            [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]], 
-            [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]]],
-            ])
+        self.assertAllClose(similarity_value, [
+            [[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]],
+            [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+             [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]],
+             [[0.2, 0.4, 0.6], [0.8, 1.0, 1.2]]],
+        ])
 
 
 if __name__ == '__main__':

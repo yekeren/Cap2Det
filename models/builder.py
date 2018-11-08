@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -25,7 +24,7 @@ def build(options, is_training=False):
     raise ValueError('The options has to be an instance of model_pb2.Model.')
 
   if options.HasExtension(gap_model_pb2.GAPModel.ext):
-    return gap_model.Model(
-        options.Extensions[gap_model_pb2.GAPModel.ext], is_training)
+    return gap_model.Model(options.Extensions[gap_model_pb2.GAPModel.ext],
+                           is_training)
 
   raise ValueError('Unknown model: {}'.format(model))

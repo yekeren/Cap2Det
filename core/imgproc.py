@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -48,9 +47,13 @@ def gaussian_filter(inputs, ksize=3):
   channel_images = tf.split(inputs, num_or_size_splits=channels, axis=-1)
 
   for channel_image in channel_images:
-    outputs.append( 
-        tf.nn.conv2d(channel_image, kernel, [1, 1, 1, 1], 
-          padding='SAME', data_format="NHWC", name="gaussian_filter"))
+    outputs.append(
+        tf.nn.conv2d(
+            channel_image,
+            kernel, [1, 1, 1, 1],
+            padding='SAME',
+            data_format="NHWC",
+            name="gaussian_filter"))
 
   return tf.concat(outputs, axis=-1)
 
@@ -132,37 +135,34 @@ def calc_box_saliency(saliency_map, box, border_ratio=0.1, alpha=1.0):
 
   border_y = tf.cast(
       tf.cast(height_entire, tf.float32) * border_ratio, tf.int64)
-  border_x = tf.cast(
-      tf.cast(width_entire, tf.float32) * border_ratio, tf.int64)
+  border_x = tf.cast(tf.cast(width_entire, tf.float32) * border_ratio, tf.int64)
 
   height_inside = height_entire - 2 * border_y
   width_inside = width_entire - 2 * border_x
 
   assert_op = tf.Assert(
-      tf.reduce_all(tf.logical_and(height_inside > 0, width_inside > 0)), 
+      tf.reduce_all(tf.logical_and(height_inside > 0, width_inside > 0)),
       ["Invalid box", height_inside, width_inside])
 
   with tf.control_dependencies([assert_op]):
-    box_inside = tf.stack([
-        ymin + border_y,
-        xmin + border_x,
-        ymax - border_y,
-        xmax - border_x], axis=-1)
-    cumsum = calc_cumsum_2d(
-        saliency_map, tf.concat([box, box_inside], axis=1))
+    box_inside = tf.stack(
+        [ymin + border_y, xmin + border_x, ymax - border_y, xmax - border_x],
+        axis=-1)
+    cumsum = calc_cumsum_2d(saliency_map, tf.concat([box, box_inside], axis=1))
     cumsum_entire, cumsum_inside = cumsum[:, :p], cumsum[:, p:]
 
-    (area_entire, area_inside
-     ) = (height_entire * width_entire, height_inside * width_inside)
+    (area_entire, area_inside) = (height_entire * width_entire,
+                                  height_inside * width_inside)
 
-    avg_inside = tf.div(cumsum_inside, 
-        _SMALL_NUMBER + tf.cast(area_inside, tf.float32))
-    avg_border = tf.div(cumsum_entire - cumsum_inside, 
+    avg_inside = tf.div(cumsum_inside,
+                        _SMALL_NUMBER + tf.cast(area_inside, tf.float32))
+    avg_border = tf.div(
+        cumsum_entire - cumsum_inside,
         _SMALL_NUMBER + tf.cast(area_entire - area_inside, tf.float32))
 
   return avg_inside - alpha * avg_border
 
-  # return tf.where(valid_inside, 
+  # return tf.where(valid_inside,
   #     avg_inside - alpha * avg_border, tf.fill([b, p], -_BIG_NUMBER))
 
 
@@ -196,11 +196,8 @@ def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
     return 0, np.tile(default_box, reps=[max_num_boxes, 1])
 
   x, y, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-  boxes = np.stack([
-      y / height, 
-      x / width, 
-      (y + h) / height, 
-      (x + w) / width], axis=-1).astype(np.float32)
+  boxes = np.stack([y / height, x / width, (y + h) / height, (x + w) / width],
+                   axis=-1).astype(np.float32)
 
   boxes = np.concatenate(
       [boxes, np.tile(default_box, reps=[max_num_boxes - num_boxes, 1])],
@@ -224,6 +221,7 @@ def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes):
     boxes: a [batch, max_num_boxes, 4] float tensor representing normalized
       boxes [ymin, xmin, ymax, xmax].
   """
+
   def _get_fn(image):
     """Extracts edge boxes from image tensor.
 
@@ -235,8 +233,10 @@ def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes):
       boxes: a [num_boxes, 4] tensor denoting the boxes.
     """
     num_boxes, boxes = tf.py_func(
-        func=lambda x: _py_get_edge_boxes(x, edge_detection, edge_boxes, max_num_boxes),
-        inp=[image], Tout=[tf.int64, tf.float32])
+        func=
+        lambda x: _py_get_edge_boxes(x, edge_detection, edge_boxes, max_num_boxes),
+        inp=[image],
+        Tout=[tf.int64, tf.float32])
 
     num_boxes.set_shape(tf.TensorShape([]))
     boxes.set_shape(tf.TensorShape([max_num_boxes, 4]))

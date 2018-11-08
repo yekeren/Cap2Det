@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -31,7 +30,8 @@ def _parse_captions(tokens, offsets, lengths, max_caption_length=20):
   num_offsets = tf.shape(offsets)[0]
   num_lengths = tf.shape(lengths)[0]
 
-  assert_op = tf.Assert(tf.equal(num_offsets, num_lengths), 
+  assert_op = tf.Assert(
+      tf.equal(num_offsets, num_lengths),
       ["Not equal: num_offsets and num_lengths", num_offsets, num_lengths])
 
   with tf.control_dependencies([assert_op]):
@@ -56,7 +56,7 @@ def _parse_captions(tokens, offsets, lengths, max_caption_length=20):
       length = tf.minimum(lengths[i], max_caption_length)
 
       pad = tf.fill(tf.expand_dims(max_caption_length - length, axis=0), "")
-      caption = tokens[offset: offset + length]
+      caption = tokens[offset:offset + length]
       caption = tf.concat([caption, pad], axis=0)
       caption_strings = tf.concat(
           [caption_strings, tf.expand_dims(caption, 0)], axis=0)
@@ -66,15 +66,17 @@ def _parse_captions(tokens, offsets, lengths, max_caption_length=20):
 
     cond = lambda i, unused_strs, unused_lens: tf.less(i, num_captions)
     (_, caption_strings, caption_lengths) = tf.while_loop(
-        cond, _body,
+        cond,
+        _body,
         loop_vars=[i, caption_strings, caption_lengths],
         shape_invariants=[
-            i.get_shape(), 
-            tf.TensorShape([None, max_caption_length]), 
+            i.get_shape(),
+            tf.TensorShape([None, max_caption_length]),
             tf.TensorShape([None])
         ])
 
   return num_captions, caption_strings, caption_lengths
+
 
 def get_input_fn(options):
   """Returns a function that generate input examples.
@@ -98,11 +100,11 @@ def get_input_fn(options):
       feature_dict: a dict mapping from names to tensors.
     """
     example_fmt = {
-      TFExampleDataFields.image_id: tf.FixedLenFeature((), tf.string),
-      TFExampleDataFields.image_encoded: tf.FixedLenFeature((), tf.string),
-      TFExampleDataFields.caption_string: tf.VarLenFeature(tf.string),
-      TFExampleDataFields.caption_offset: tf.VarLenFeature(tf.int64),
-      TFExampleDataFields.caption_length: tf.VarLenFeature(tf.int64),
+        TFExampleDataFields.image_id: tf.FixedLenFeature((), tf.string),
+        TFExampleDataFields.image_encoded: tf.FixedLenFeature((), tf.string),
+        TFExampleDataFields.caption_string: tf.VarLenFeature(tf.string),
+        TFExampleDataFields.caption_offset: tf.VarLenFeature(tf.int64),
+        TFExampleDataFields.caption_length: tf.VarLenFeature(tf.int64),
     }
     parsed = tf.parse_single_example(
         example, example_fmt, name=OperationNames.parse_single_example)
@@ -110,12 +112,13 @@ def get_input_fn(options):
     image_id = parsed[TFExampleDataFields.image_id]
 
     with tf.name_scope(OperationNames.decode_image):
-      image = tf.image.decode_jpeg(parsed[TFExampleDataFields.image_encoded],
+      image = tf.image.decode_jpeg(
+          parsed[TFExampleDataFields.image_encoded],
           channels=options.image_channels)
       if options.HasField("preprocess_options"):
         image = preprocess.preprocess(image, options.preprocess_options)
-      image = tf.image.resize_images(image, [options.image_height,
-          options.image_width])
+      image = tf.image.resize_images(
+          image, [options.image_height, options.image_width])
 
     with tf.name_scope(OperationNames.decode_caption):
       tokens = tf.sparse_tensor_to_dense(
@@ -125,16 +128,18 @@ def get_input_fn(options):
       lengths = tf.sparse_tensor_to_dense(
           parsed[TFExampleDataFields.caption_length], default_value=0)
 
-      (num_captions, caption_strings, caption_lengths
-       ) = _parse_captions(tokens, offsets, lengths,
+      (num_captions, caption_strings, caption_lengths) = _parse_captions(
+          tokens,
+          offsets,
+          lengths,
           max_caption_length=options.max_caption_length)
 
     feature_dict = {
-      InputDataFields.image: image,
-      InputDataFields.image_id: image_id,
-      InputDataFields.num_captions: num_captions,
-      InputDataFields.caption_strings: caption_strings,
-      InputDataFields.caption_lengths: caption_lengths,
+        InputDataFields.image: image,
+        InputDataFields.image_id: image_id,
+        InputDataFields.num_captions: num_captions,
+        InputDataFields.caption_strings: caption_strings,
+        InputDataFields.caption_lengths: caption_lengths,
     }
     return feature_dict
 
@@ -145,21 +150,22 @@ def get_input_fn(options):
       a dataset that can be fed to estimator.
     """
     files = tf.data.Dataset.list_files(options.input_pattern)
-    dataset = files.interleave(tf.data.TFRecordDataset, 
-        cycle_length=options.interleave_cycle_length)
+    dataset = files.interleave(
+        tf.data.TFRecordDataset, cycle_length=options.interleave_cycle_length)
     if options.is_training:
       dataset = dataset.repeat().shuffle(options.shuffle_buffer_size)
-    dataset = dataset.map(map_func=_parse_fn,
-        num_parallel_calls=options.map_num_parallel_calls)
-    dataset = dataset.padded_batch(options.batch_size, 
+    dataset = dataset.map(
+        map_func=_parse_fn, num_parallel_calls=options.map_num_parallel_calls)
+    dataset = dataset.padded_batch(
+        options.batch_size,
         padded_shapes={
-          InputDataFields.image: 
+            InputDataFields.image:
             [options.image_height, options.image_width, options.image_channels],
-          InputDataFields.image_id: [],
-          InputDataFields.num_captions: [],
-          InputDataFields.caption_strings: [None, options.max_caption_length],
-          InputDataFields.caption_lengths: [None],
-        }, 
+            InputDataFields.image_id: [],
+            InputDataFields.num_captions: [],
+            InputDataFields.caption_strings: [None, options.max_caption_length],
+            InputDataFields.caption_lengths: [None],
+        },
         drop_remainder=True)
     dataset = dataset.prefetch(options.prefetch_buffer_size)
     return dataset

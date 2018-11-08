@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -67,8 +66,13 @@ def _py_show_heatmap(image, saliency):
   return image_with_heatmap
 
 
-def _py_draw_rectangles(image, boxes, scores, labels, 
-    color=GREEN, thickness=1, fontscale=1.0):
+def _py_draw_rectangles(image,
+                        boxes,
+                        scores,
+                        labels,
+                        color=GREEN,
+                        thickness=1,
+                        fontscale=1.0):
   """Draws boxes on the image.
 
   Args:
@@ -89,28 +93,42 @@ def _py_draw_rectangles(image, boxes, scores, labels,
   for i, (box, score, label) in enumerate(zip(boxes, scores, labels)):
     label = label.decode('UTF8') if isinstance(label, bytes) else label
     text = '%s: %.3lf' % (label, score) if label else '%.3lf' % (score)
-    (text_w, text_h), baseline = cv2.getTextSize(
-      text, _FONTFACE, fontscale, thickness)
+    (text_w, text_h), baseline = cv2.getTextSize(text, _FONTFACE, fontscale,
+                                                 thickness)
 
     ymin, xmin, ymax, xmax = box
-    ymin, xmin, ymax, xmax = (
-        int(height * ymin + 0.5), int(width * xmin + 0.5),
-        int(height * ymax + 0.5), int(width * xmax + 0.5))
+    ymin, xmin, ymax, xmax = (int(height * ymin + 0.5), int(width * xmin + 0.5),
+                              int(height * ymax + 0.5), int(width * xmax + 0.5))
 
-    cv2.rectangle(canvas, 
-        pt1=(xmin, ymin), pt2=(xmax, ymax), 
-        color=color, thickness=thickness)
-    cv2.rectangle(canvas, 
-        pt1=(xmin + thickness, ymin + thickness), 
-        pt2=(xmin + thickness + text_w, ymin + thickness + text_h), 
-        color=color, thickness=-1)
-    cv2.putText(canvas, text, org=(xmin, ymin + text_h),
-        fontFace=_FONTFACE, fontScale=fontscale, color=BLACK, thickness=thickness)
+    cv2.rectangle(
+        canvas,
+        pt1=(xmin, ymin),
+        pt2=(xmax, ymax),
+        color=color,
+        thickness=thickness)
+    cv2.rectangle(
+        canvas,
+        pt1=(xmin + thickness, ymin + thickness),
+        pt2=(xmin + thickness + text_w, ymin + thickness + text_h),
+        color=color,
+        thickness=-1)
+    cv2.putText(
+        canvas,
+        text,
+        org=(xmin, ymin + text_h),
+        fontFace=_FONTFACE,
+        fontScale=fontscale,
+        color=BLACK,
+        thickness=thickness)
   return canvas
 
 
-def _py_draw_caption(image, caption, 
-    org, color=GREEN, thickness=1, fontscale=1.0):
+def _py_draw_caption(image,
+                     caption,
+                     org,
+                     color=GREEN,
+                     thickness=1,
+                     fontscale=1.0):
   """Draws boxes on the image.
 
   Args:
@@ -128,15 +146,23 @@ def _py_draw_caption(image, caption,
 
   canvas = image.copy()
   caption = caption.decode('UTF8') if isinstance(caption, bytes) else caption
-  (text_w, text_h), baseline = cv2.getTextSize(
-      caption, _FONTFACE, fontscale, thickness)
+  (text_w, text_h), baseline = cv2.getTextSize(caption, _FONTFACE, fontscale,
+                                               thickness)
 
-  cv2.rectangle(canvas, 
+  cv2.rectangle(
+      canvas,
       pt1=(org[0], org[1]),
-      pt2=(org[0] + text_w + thickness, org[1] + text_h + thickness), 
-      color=color, thickness=-1)
-  cv2.putText(canvas, caption, org=(org[0], org[1] + text_h), 
-      fontFace=_FONTFACE, fontScale=fontscale, color=BLACK, thickness=thickness)
+      pt2=(org[0] + text_w + thickness, org[1] + text_h + thickness),
+      color=color,
+      thickness=-1)
+  cv2.putText(
+      canvas,
+      caption,
+      org=(org[0], org[1] + text_h),
+      fontFace=_FONTFACE,
+      fontScale=fontscale,
+      color=BLACK,
+      thickness=thickness)
   return canvas
 
 
@@ -163,7 +189,8 @@ def convert_to_heatmap(image, normalize=True):
     """
     heatmap = tf.py_func(
         func=lambda x: _py_convert_to_heatmap(x, normalize),
-        inp=[image], Tout=tf.float32)
+        inp=[image],
+        Tout=tf.float32)
 
     heatmap.set_shape(tf.TensorShape([None, None, 3]))
     return heatmap
@@ -171,8 +198,7 @@ def convert_to_heatmap(image, normalize=True):
   return tf.map_fn(_convert_fn, elems=image, dtype=tf.float32)
 
 
-def draw_caption(image, caption, org, 
-    color=GREEN, thickness=1, fontscale=1.0):
+def draw_caption(image, caption, org, color=GREEN, thickness=1, fontscale=1.0):
   """Draws caption on the image.
 
   Args:
@@ -186,6 +212,7 @@ def draw_caption(image, caption, org,
   Returns:
     canvas: a [batch, height, width, 3] uint8 tensor with caption drawn.
   """
+
   def _draw_fn(inputs):
     """Draws the box on the image.
 
@@ -198,8 +225,10 @@ def draw_caption(image, caption, org,
     """
     image, caption = inputs
     canvas = tf.py_func(
-        func=lambda x, y: _py_draw_caption(x, y, org, color, thickness, fontscale),
-        inp=[image, caption], Tout=tf.uint8)
+        func=
+        lambda x, y: _py_draw_caption(x, y, org, color, thickness, fontscale),
+        inp=[image, caption],
+        Tout=tf.uint8)
 
     canvas.set_shape(tf.TensorShape([None, None, 3]))
     return canvas
@@ -207,8 +236,13 @@ def draw_caption(image, caption, org,
   return tf.map_fn(_draw_fn, elems=[image, caption], dtype=tf.uint8)
 
 
-def draw_rectangles(image, boxes, scores=None, labels=None, 
-    color=GREEN, thickness=1, fontscale=1.0):
+def draw_rectangles(image,
+                    boxes,
+                    scores=None,
+                    labels=None,
+                    color=GREEN,
+                    thickness=1,
+                    fontscale=1.0):
   """Draws rectangle to the image.
 
   Args:
@@ -226,6 +260,7 @@ def draw_rectangles(image, boxes, scores=None, labels=None,
   Returns:
     canvas: a [batch, height, width, 3] uint8 tensor with information drawn.
   """
+
   def _draw_fn(inputs):
     """Draws the box on the image.
 
@@ -251,7 +286,9 @@ def draw_rectangles(image, boxes, scores=None, labels=None,
   if labels is None:
     labels = tf.constant("", shape=[batch, num_boxes], dtype=tf.string)
 
-  return tf.map_fn(_draw_fn, elems=[image, boxes, scores, labels], dtype=tf.uint8)
+  return tf.map_fn(
+      _draw_fn, elems=[image, boxes, scores, labels], dtype=tf.uint8)
+
 
 @utils.deprecated
 def gaussian_kernel(ksize=3, sigma=-1.0):
@@ -288,12 +325,15 @@ def gaussian_filter(inputs, ksize=3):
   kernel = tf.reshape(tf.constant(kernel), [ksize, ksize, 1, 1])
 
   outputs = []
-  channel_images = tf.split(inputs,
-      num_or_size_splits=channels, axis=-1)
+  channel_images = tf.split(inputs, num_or_size_splits=channels, axis=-1)
 
   for channel_image in channel_images:
-    outputs.append( 
-        tf.nn.conv2d(channel_image, kernel, [1, 1, 1, 1], 
-          padding='SAME', data_format="NHWC", name="gaussian_filter"))
+    outputs.append(
+        tf.nn.conv2d(
+            channel_image,
+            kernel, [1, 1, 1, 1],
+            padding='SAME',
+            data_format="NHWC",
+            name="gaussian_filter"))
 
   return tf.concat(outputs, axis=-1)

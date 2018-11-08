@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -21,12 +20,16 @@ def deprecated(func):
   Returns:
     new_func: a wrapping of the actual function `func`.
   """
+
   @functools.wraps(func)
   def new_func(*args, **kwargs):
-    warnings.warn("Function `{}` is deprecated.".format(func.__name__),
-        category=DeprecationWarning, stacklevel=2)
+    warnings.warn(
+        "Function `{}` is deprecated.".format(func.__name__),
+        category=DeprecationWarning,
+        stacklevel=2)
     tf.logging.warn("Function `{}` is deprecated.".format(func.__name__))
     return func(*args, **kwargs)
+
   return new_func
 
 

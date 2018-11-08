@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -31,26 +30,33 @@ def build_optimizer(options, learning_rate=0.1):
 
   if 'sgd' == optimizer:
     options = options.sgd
-    return tf.train.GradientDescentOptimizer(learning_rate,
-        use_locking=options.use_locking)
+    return tf.train.GradientDescentOptimizer(
+        learning_rate, use_locking=options.use_locking)
 
   if 'adagrad' == optimizer:
     options = options.adagrad
-    return tf.train.AdagradOptimizer(learning_rate,
+    return tf.train.AdagradOptimizer(
+        learning_rate,
         initial_accumulator_value=options.initial_accumulator_value,
         use_locking=options.use_locking)
 
   if 'adam' == optimizer:
     options = options.adam
-    return tf.train.AdamOptimizer(learning_rate,
-        beta1=options.beta1, beta2=options.beta2,
-        epsilon=options.epsilon, use_locking=options.use_locking)
+    return tf.train.AdamOptimizer(
+        learning_rate,
+        beta1=options.beta1,
+        beta2=options.beta2,
+        epsilon=options.epsilon,
+        use_locking=options.use_locking)
 
   if 'rmsprop' == optimizer:
     options = options.rmsprop
-    return tf.train.RMSPropOptimizer(learning_rate,
-        decay=options.decay, momentum=options.momentum,
-        epsilon=options.epsilon, use_locking=options.use_locking,
+    return tf.train.RMSPropOptimizer(
+        learning_rate,
+        decay=options.decay,
+        momentum=options.momentum,
+        epsilon=options.epsilon,
+        use_locking=options.use_locking,
         centered=options.centered)
 
   raise ValueError('Invalid optimizer: {}.'.format(optimizer))
@@ -96,16 +102,15 @@ def build_hyperparams(options, is_training):
   batch_norm_params = None
   if options.HasField('batch_norm'):
     batch_norm = slim.batch_norm
-    batch_norm_params = _build_batch_norm_params(
-        options.batch_norm, is_training)
+    batch_norm_params = _build_batch_norm_params(options.batch_norm,
+                                                 is_training)
 
   affected_ops = [slim.conv2d, slim.separable_conv2d, slim.conv2d_transpose]
   if options.op == hyperparams_pb2.Hyperparams.FC:
     affected_ops = [slim.fully_connected]
 
   with (slim.arg_scope([slim.batch_norm], **batch_norm_params)
-        if batch_norm_params is not None else
-        IdentityContextManager()):
+        if batch_norm_params is not None else IdentityContextManager()):
     with slim.arg_scope(
         affected_ops,
         weights_regularizer=_build_slim_regularizer(options.regularizer),
@@ -149,7 +154,7 @@ def _build_slim_regularizer(regularizer):
     ValueError: On unknown regularizer.
   """
   regularizer_oneof = regularizer.WhichOneof('regularizer_oneof')
-  if  regularizer_oneof == 'l1_regularizer':
+  if regularizer_oneof == 'l1_regularizer':
     return slim.l1_regularizer(scale=float(regularizer.l1_regularizer.weight))
   if regularizer_oneof == 'l2_regularizer':
     return slim.l2_regularizer(scale=float(regularizer.l2_regularizer.weight))
@@ -180,11 +185,10 @@ def _build_initializer(initializer):
         mean=initializer.random_normal_initializer.mean,
         stddev=initializer.random_normal_initializer.stddev)
   if initializer_oneof == 'variance_scaling_initializer':
-    enum_descriptor = (hyperparams_pb2.VarianceScalingInitializer.
-                       DESCRIPTOR.enum_types_by_name['Mode'])
-    mode = enum_descriptor.values_by_number[initializer.
-                                            variance_scaling_initializer.
-                                            mode].name
+    enum_descriptor = (hyperparams_pb2.VarianceScalingInitializer.DESCRIPTOR.
+                       enum_types_by_name['Mode'])
+    mode = enum_descriptor.values_by_number[
+        initializer.variance_scaling_initializer.mode].name
     return slim.variance_scaling_initializer(
         factor=initializer.variance_scaling_initializer.factor,
         mode=mode,
@@ -211,5 +215,3 @@ def _build_batch_norm_params(batch_norm, is_training):
       'is_training': is_training and batch_norm.train,
   }
   return batch_norm_params
-
-

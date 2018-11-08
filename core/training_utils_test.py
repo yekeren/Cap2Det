@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -11,6 +10,7 @@ from protos import optimizer_pb2
 
 
 class TrainingUtilsTest(tf.test.TestCase):
+
   def test_build_optimizer(self):
     # Gradient descent optimizer.
 

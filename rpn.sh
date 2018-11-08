@@ -8,7 +8,7 @@ export PYTHONPATH="`pwd`:$PYTHONPATH"
 
 mkdir -p log
 
-name="rpn_only_v3"
+name="rpn_only_v4"
 
 PIPELINE_CONFIG_PATH="rpn_configs/${name}.pbtxt"
 MODEL_DIR="rpn_logs/${name}"

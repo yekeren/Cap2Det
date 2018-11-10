@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -18,20 +17,19 @@ from core.standard_fields import GAPPredictionTasks
 
 flags = tf.app.flags
 
-flags.DEFINE_string('pipeline_proto', 
-    '', 'Path to the pipeline proto file.')
+flags.DEFINE_string('pipeline_proto', '', 'Path to the pipeline proto file.')
 
-flags.DEFINE_string('name_to_class_id_file',
-    '', 'Path to the name_to_class_id file.')
+flags.DEFINE_string('name_to_class_id_file', '',
+                    'Path to the name_to_class_id file.')
 
-flags.DEFINE_float('saliency_threshold', 
-    1.0, 'Threshold of the word saliency score.')
+flags.DEFINE_float('saliency_threshold', 0.7,
+                   'Threshold of the word saliency score.')
 
-flags.DEFINE_float('similarity_threshold', 
-    0.7, 'Threshold of the similarity score.')
+flags.DEFINE_float('similarity_threshold', 0.75,
+                   'Threshold of the similarity score.')
 
-flags.DEFINE_string('expanded_name_to_class_id_file',
-    '', 'Path to the expanded name_to_class_id file.')
+flags.DEFINE_string('expanded_name_to_class_id_file', '',
+                    'Path to the expanded name_to_class_id file.')
 
 FLAGS = flags.FLAGS
 
@@ -80,17 +78,20 @@ def _knn_retrieval(queries, vocabulary, word_embedding, word_saliency):
   for i, (word, similarity_row) in enumerate(zip(vocabulary, similarity)):
     nearest_query = similarity_row.argmax()
     synonyms_list[nearest_query].append({
-        'word': word, 
-        'similarity': similarity_row[nearest_query],
-        'saliency': word_saliency[i]
-        })
+        'word':
+        word,
+        'similarity':
+        similarity_row[nearest_query],
+        'saliency':
+        word_saliency[i]
+    })
 
   # Sort by similarity.
   for i in range(len(synonyms_list)):
-    synonyms_list[i] = sorted(synonyms_list[i], 
-        key=lambda x: x['similarity'], reverse=True)
+    synonyms_list[i] = sorted(
+        synonyms_list[i], key=lambda x: x['similarity'], reverse=True)
   return synonyms_list
-    
+
 
 def main(_):
   pipeline_proto = _load_pipeline_proto(FLAGS.pipeline_proto)
@@ -103,8 +104,8 @@ def main(_):
     # Infer saliency.
 
     model = builder.build(pipeline_proto.model, is_training=False)
-    predictions = model.build_prediction(examples={}, 
-        prediction_task=GAPPredictionTasks.word_saliency)
+    predictions = model.build_prediction(
+        examples={}, prediction_task=GAPPredictionTasks.word_saliency)
 
     saver = tf.train.Saver()
     invalid_variable_names = tf.report_uninitialized_variables()
@@ -131,14 +132,14 @@ def main(_):
       name, class_id = line.strip('\n').split('\t')
       name_to_class_id[name] = class_id
 
-  (vocabulary, word_saliency, word_embedding) = (
-      predictions[GAPPredictions.vocabulary],
-      predictions[GAPPredictions.word_saliency],
-      predictions[GAPPredictions.word_embedding])
+  (vocabulary, word_saliency,
+   word_embedding) = (predictions[GAPPredictions.vocabulary],
+                      predictions[GAPPredictions.word_saliency],
+                      predictions[GAPPredictions.word_embedding])
 
   queries = list(name_to_class_id)
-  synonyms_list = _knn_retrieval(
-      queries, vocabulary, word_embedding, word_saliency)
+  synonyms_list = _knn_retrieval(queries, vocabulary, word_embedding,
+                                 word_saliency)
 
   # Print to the terminal.
 
@@ -151,8 +152,8 @@ def main(_):
       if synonym['similarity'] < FLAGS.similarity_threshold:
         continue
       elems.append(synonym['word'])
-      expanded_name_to_class_id.append(
-          (synonym['word'], name_to_class_id[query]))
+      expanded_name_to_class_id.append((synonym['word'],
+                                        name_to_class_id[query]))
     print('%s\t%s' % (query, ','.join(elems)))
 
   # Write to output file.
@@ -162,6 +163,7 @@ def main(_):
       fid.write('%s\t%s\n' % (word, class_id))
 
   tf.logging.info('Done')
+
 
 if __name__ == '__main__':
   tf.app.run()

@@ -163,7 +163,7 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
   if func_name == 'saliency_sum':
     return imgproc.calc_cumsum_2d
 
-  if func_name == 'saliency_avg':
+  if func_name == 'saliency_avg' or func_name == 'diba':
 
     def _cumsum_avg(score_map, box):
       ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
@@ -174,7 +174,51 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
 
     return _cumsum_avg
 
+  if func_name == 'wei':
+
+    def _cumsum_gradient(score_map, box):
+      b, n, m, c = utils.get_tensor_shape(score_map)
+      _, p, _ = utils.get_tensor_shape(box)
+
+      # Leave a border for the image border.
+      ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
+      ymin, xmin = tf.maximum(ymin, 3), tf.maximum(xmin, 3)
+      ymax, xmax = tf.minimum(ymax, n - 3), tf.minimum(xmax, m - 3)
+
+      box = tf.stack([ymin, xmin, ymax, xmax], axis=-1)
+      box_exp = _get_expanded_box(
+          box, img_h=n, img_w=m, border_ratio=border_ratio)
+
+      box_list = [box, box_exp]
+
+      area_list = [tf.cast(_get_box_area(b), tf.float32) for b in box_list]
+      cumsum = imgproc.calc_cumsum_2d(score_map, tf.concat(box_list, axis=1))
+      cumsum_list = [
+          cumsum[:, i * p:(i + 1) * p, :] for i in range(len(box_list))
+      ]
+
+      # The main box has to be valid, including the four shrinked boxes.
+      assert_op = tf.Assert(
+          tf.reduce_all(tf.greater(area_list[0], 0)),
+          ["Check area of the main box failed:", area_list[0]])
+
+      with tf.control_dependencies([assert_op]):
+        border_area = area_list[1] - area_list[0]
+        border_cumsum = cumsum_list[1] - cumsum_list[0]
+
+        border_avg = tf.div(
+            border_cumsum,
+            tf.maximum(_SMALL_NUMBER, tf.expand_dims(border_area, axis=-1)))
+        box_avg = tf.div(
+            cumsum_list[0],
+            tf.maximum(_SMALL_NUMBER, tf.expand_dims(area_list[0], axis=-1)))
+
+        return purity_weight * box_avg - border_avg
+
+    return _cumsum_gradient
+
   if func_name == 'saliency_grad':
+    assert False
 
     def _cumsum_gradient(score_map, box):
       b, n, m, c = utils.get_tensor_shape(score_map)
@@ -203,6 +247,7 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
     return _cumsum_gradient
 
   if func_name == 'saliency_grad_v2':
+    assert False
 
     def _cumsum_gradient(score_map, box):
       b, n, m, c = utils.get_tensor_shape(score_map)
@@ -236,7 +281,6 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
       ]
 
       # Compute the averaged cumsum inside each box.
-      box_scores = []
       cumsum_avg_list = [
           tf.div(
               cumsum_list[i],
@@ -308,7 +352,6 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
       ]
 
       # Compute the averaged cumsum inside each box.
-      box_scores = []
       cumsum_avg_list = [
           tf.div(
               cumsum_list[i],

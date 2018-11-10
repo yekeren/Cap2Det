@@ -20,22 +20,22 @@ cd "tensorflow_models/research" \
   && protoc object_detection/protos/*.proto --python_out=. \
   && cd - || exit -1
 
-# python tools/create_coco_tf_record.py --logtostderr \
-#   --train_image_file="${TRAIN_IMAGE_FILE}" \
-#   --val_image_file="${VAL_IMAGE_FILE}" \
-#   --test_image_file="${TEST_IMAGE_FILE}" \
-#   --train_annotations_file="${TRAIN_ANNOTATIONS_FILE}" \
-#   --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
-#   --val_annotations_file="${VAL_ANNOTATIONS_FILE}" \
-#   --val_caption_annotations_file="${VAL_CAPTION_ANNOTATIONS_FILE}" \
-#   --testdev_annotations_file="${TESTDEV_ANNOTATIONS_FILE}" \
-#   --output_dir="${OUTPUT_DIR}"
+python tools/create_coco_tf_record.py --logtostderr \
+  --train_image_file="${TRAIN_IMAGE_FILE}" \
+  --val_image_file="${VAL_IMAGE_FILE}" \
+  --test_image_file="${TEST_IMAGE_FILE}" \
+  --train_annotations_file="${TRAIN_ANNOTATIONS_FILE}" \
+  --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
+  --val_annotations_file="${VAL_ANNOTATIONS_FILE}" \
+  --val_caption_annotations_file="${VAL_CAPTION_ANNOTATIONS_FILE}" \
+  --testdev_annotations_file="${TESTDEV_ANNOTATIONS_FILE}" \
+  --output_dir="${OUTPUT_DIR}"
 
 python tools/create_coco_vocab.py --logtostderr \
   --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
-  --glove_file="zoo/glove.6B.300d.txt" \
+  --glove_file="zoo/glove.6B.50d.txt" \
   --vocabulary_file="${OUTPUT_DIR}/coco_vocab.txt" \
-  --vocabulary_weights_file="${OUTPUT_DIR}/coco_vocab_300d.npy" \
-  --min_word_freq="5"
+  --vocabulary_weights_file="${OUTPUT_DIR}/coco_vocab_50d.npy" \
+  --min_word_freq="20"
 
 exit 0

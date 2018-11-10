@@ -92,7 +92,12 @@ def _py_draw_rectangles(image,
   canvas = image.copy()
   for i, (box, score, label) in enumerate(zip(boxes, scores, labels)):
     label = label.decode('UTF8') if isinstance(label, bytes) else label
-    text = '%s: %.3lf' % (label, score) if label else '%.3lf' % (score)
+    if label and score > -1000:
+      text = '%s: %.3lf' % (label, score)
+    elif score > -1000:
+      text = '%.3lf' % (score)
+    else:
+      text = label
     (text_w, text_h), baseline = cv2.getTextSize(text, _FONTFACE, fontscale,
                                                  thickness)
 
@@ -106,20 +111,21 @@ def _py_draw_rectangles(image,
         pt2=(xmax, ymax),
         color=color,
         thickness=thickness)
-    cv2.rectangle(
-        canvas,
-        pt1=(xmin + thickness, ymin + thickness),
-        pt2=(xmin + thickness + text_w, ymin + thickness + text_h),
-        color=color,
-        thickness=-1)
-    cv2.putText(
-        canvas,
-        text,
-        org=(xmin, ymin + text_h),
-        fontFace=_FONTFACE,
-        fontScale=fontscale,
-        color=BLACK,
-        thickness=thickness)
+    if text:
+      cv2.rectangle(
+          canvas,
+          pt1=(xmin + thickness, ymin + thickness),
+          pt2=(xmin + thickness + text_w, ymin + thickness + text_h),
+          color=color,
+          thickness=-1)
+      cv2.putText(
+          canvas,
+          text,
+          org=(xmin, ymin + text_h),
+          fontFace=_FONTFACE,
+          fontScale=fontscale,
+          color=BLACK,
+          thickness=thickness)
   return canvas
 
 

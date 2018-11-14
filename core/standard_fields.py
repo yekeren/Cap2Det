@@ -77,3 +77,21 @@ class GAPPredictions(object):
   word_embedding = "word_embedding"
   word_saliency = "image_saliency"
   vocabulary = "vocabulary"
+
+class VOCPredictionTasks(object):
+  """Prediction tasks of the VOC model."""
+  class_labels = "class_labels"
+
+
+class VOCVariableScopes(object):
+  """Variable scopes used in VOC model."""
+  cnn = "CNN"
+  image_proj = "image_proj"
+
+
+class VOCPredictions(object):
+  """Predictions in the VOC model."""
+  image_id = "image_id"
+  class_labels = "class_labels"
+  class_act_map = "class_act_map"
+  per_class_logits = "per_class_logits"

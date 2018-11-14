@@ -1,0 +1,43 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+import "protos/hyperparams.proto";
+
+
+message VOCModel {
+  extend Model {
+    optional VOCModel ext = 1004;
+  }
+
+  optional string preprocessing_method = 51 [default = "inception"];
+
+  // CNN network backbone.
+  optional string cnn_name = 2 [default = 'mobilenet_v2'];
+
+  // If true, also traing CNN end-to-end.
+  optional bool cnn_trainable = 3 [default = false];
+
+  // Weight decay of the CNN model.
+  optional float cnn_weight_decay = 4 [default = 1e-4];
+
+  // Feature map to use.
+  optional string cnn_feature_map = 5 [default = 'layer_18/output'];
+
+  // Dropout rate of the CNN network.
+  optional float cnn_dropout_keep_prob = 6 [default = 1.0];
+
+  // Path to the pre-trained CNN model.
+  optional string cnn_checkpoint = 7;
+
+  // If true, then use global maximum pooling; otherwise use gap.
+  optional bool use_gmp = 8 [default = true];
+
+  // Path to the vocabulary file.
+  optional string vocabulary_file = 11;
+
+  // Hyperparams for image projection layer.
+  optional Hyperparams image_proj_hyperparams = 31;
+
+  // If true, use sigmoid cross entropy loss.
+  optional bool use_sigmoid_instead_of_softmax = 32 [default = false];
+}

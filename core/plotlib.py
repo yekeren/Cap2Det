@@ -23,7 +23,7 @@ _FONTFACE = cv2.FONT_HERSHEY_COMPLEX_SMALL
 # NOTE: THE DEFAULT CHANNEL ORDER IS RGB.
 
 
-def _py_convert_to_heatmap(image, normalize=True):
+def _py_convert_to_heatmap(image, normalize=True, normalize_to=None):
   """Converts single-channel image to heat-map image.
 
   Args:
@@ -35,7 +35,12 @@ def _py_convert_to_heatmap(image, normalize=True):
       range of [0.0, 1.0].
   """
   if normalize:
-    min_v, max_v = image.min(), image.max()
+    if normalize_to is None:
+      min_v, max_v = image.min(), image.max()
+    else:
+      min_v, max_v = normalize_to
+      image = np.maximum(image, min_v)
+      image = np.minimum(image, max_v)
     image = (image - min_v) / (_SMALL_NUMBER + max_v - min_v)
 
   cm = plt.get_cmap(_CMAP)
@@ -172,7 +177,7 @@ def _py_draw_caption(image,
   return canvas
 
 
-def convert_to_heatmap(image, normalize=True):
+def convert_to_heatmap(image, normalize=True, normalize_to=None):
   """Converts the single-channel image to heat-map image.
 
   Args:
@@ -194,7 +199,7 @@ def convert_to_heatmap(image, normalize=True):
       heatmap: a [height, width, 3] float tensor.
     """
     heatmap = tf.py_func(
-        func=lambda x: _py_convert_to_heatmap(x, normalize),
+        func=lambda x: _py_convert_to_heatmap(x, normalize, normalize_to),
         inp=[image],
         Tout=tf.float32)
 

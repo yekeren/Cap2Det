@@ -11,7 +11,7 @@ from train import trainer
 
 flags = tf.app.flags
 
-tf.logging.set_verbosity(tf.logging.INFO)
+tf.logging.set_verbosity(tf.logging.DEBUG)
 
 flags.DEFINE_string('type', '', 'A message string passed from command-line.')
 

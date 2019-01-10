@@ -28,6 +28,45 @@ def _py_gaussian_kernel(ksize=3, sigma=-1.0):
   return kernel * kernel.transpose()
 
 
+def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
+  """Extracts edge boxes from an image.
+
+  Args:
+    image: a [height, width, 3] float numpy array, RGB format, [0.0, 255.0].
+    edge_detection: an instance of cv2.ximgproc.StructuredEdgeDetection.
+    edge_boxes: an instance of cv2.ximgproc.EdgeBoxes.
+    max_num_boxes: maximum number of boxes.
+
+  Returns:
+    num_boxes: a scalar int representing the number of boxes in the image.
+    boxes: a [max_num_boxes, 4] float numpy array representing normalized boxes
+      [ymin, xmin, ymax, xmax].
+  """
+  height, width, _ = image.shape
+  edge_boxes.setMaxBoxes(max_num_boxes)
+
+  edges = edge_detection.detectEdges(image / 255.0)
+  orimap = edge_detection.computeOrientation(edges)
+
+  nmsed_edges = edge_detection.edgesNms(edges, orimap)
+  boxes = edge_boxes.getBoundingBoxes(nmsed_edges, orimap)
+
+  default_box = np.array([[0, 0, 1, 1]], dtype=np.float32)
+
+  num_boxes = len(boxes)
+  if 0 == num_boxes:
+    return 0, np.tile(default_box, reps=[max_num_boxes, 1])
+
+  x, y, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+  boxes = np.stack([y / height, x / width, (y + h) / height, (x + w) / width],
+                   axis=-1).astype(np.float32)
+
+  boxes = np.concatenate(
+      [boxes, np.tile(default_box, reps=[max_num_boxes - num_boxes, 1])],
+      axis=0)
+  return num_boxes, boxes
+
+
 def gaussian_filter(inputs, ksize=3):
   """Applies Gaussian filter to the inputs.
 
@@ -54,7 +93,6 @@ def gaussian_filter(inputs, ksize=3):
             padding='SAME',
             data_format="NHWC",
             name="gaussian_filter"))
-
   return tf.concat(outputs, axis=-1)
 
 
@@ -102,7 +140,7 @@ def calc_cumsum_2d(image, box):
   cumsum = calc_integral_image(image)
   ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
 
-  i = tf.range(b, dtype=tf.int64)
+  i = tf.range(tf.cast(b, tf.int64), dtype=tf.int64)
   i = tf.tile(tf.expand_dims(i, axis=-1), [1, p])
 
   i_a = tf.gather_nd(cumsum, tf.stack([i, ymin, xmin], axis=-1))
@@ -111,99 +149,6 @@ def calc_cumsum_2d(image, box):
   i_d = tf.gather_nd(cumsum, tf.stack([i, ymax, xmax], axis=-1))
 
   return i_d + i_a - i_b - i_c
-
-
-@utils.deprecated
-def calc_box_saliency(saliency_map, box, border_ratio=0.1, alpha=1.0):
-  """Computes the saliency score of each box.
-
-  Args:
-    saliency_map: 3-D float `Tensor` of size [b, n, m].
-    box: 3-D int64 `Tensor` of size [b, p, 4], representing `b` examples each 
-      with `p` proposals in the format of [ymin, xmin, ymax, xmax].
-    border_ratio: width of the border, meatured in percentage.
-    alpha: hyperparamter to balance the intensities inside and outside.
-
-  Returns:
-    box_saliency: 2-D float `Tensor` of size [b, p].
-  """
-  b, n, m = utils.get_tensor_shape(saliency_map)
-  _, p, _ = utils.get_tensor_shape(box)
-
-  ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
-  (height_entire, width_entire) = ymax - ymin, xmax - xmin
-
-  border_y = tf.cast(
-      tf.cast(height_entire, tf.float32) * border_ratio, tf.int64)
-  border_x = tf.cast(tf.cast(width_entire, tf.float32) * border_ratio, tf.int64)
-
-  height_inside = height_entire - 2 * border_y
-  width_inside = width_entire - 2 * border_x
-
-  assert_op = tf.Assert(
-      tf.reduce_all(tf.logical_and(height_inside > 0, width_inside > 0)),
-      ["Invalid box", height_inside, width_inside])
-
-  with tf.control_dependencies([assert_op]):
-    box_inside = tf.stack(
-        [ymin + border_y, xmin + border_x, ymax - border_y, xmax - border_x],
-        axis=-1)
-    cumsum = calc_cumsum_2d(saliency_map, tf.concat([box, box_inside], axis=1))
-    cumsum_entire, cumsum_inside = cumsum[:, :p], cumsum[:, p:]
-
-    (area_entire, area_inside) = (height_entire * width_entire,
-                                  height_inside * width_inside)
-
-    avg_inside = tf.div(cumsum_inside,
-                        _SMALL_NUMBER + tf.cast(area_inside, tf.float32))
-    avg_border = tf.div(
-        cumsum_entire - cumsum_inside,
-        _SMALL_NUMBER + tf.cast(area_entire - area_inside, tf.float32))
-
-  return avg_inside - alpha * avg_border
-
-  # return tf.where(valid_inside,
-  #     avg_inside - alpha * avg_border, tf.fill([b, p], -_BIG_NUMBER))
-
-
-def _py_get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes=50):
-  """Extracts edge boxes from an image.
-
-  Args:
-    image: a [height, width, 3] float numpy array, RGB format, [0.0, 255.0].
-    edge_detection: an instance of cv2.ximgproc.StructuredEdgeDetection.
-    edge_boxes: an instance of cv2.ximgproc.EdgeBoxes.
-    max_num_boxes: maximum number of boxes.
-
-  Returns:
-    num_boxes: a scalar int representing the number of boxes in the image.
-    boxes: a [max_num_boxes, 4] float numpy array representing normalized boxes
-      [ymin, xmin, ymax, xmax].
-  """
-  height, width, _ = image.shape
-  edge_boxes.setMaxBoxes(max_num_boxes)
-
-  edges = edge_detection.detectEdges(image / 255.0)
-  orimap = edge_detection.computeOrientation(edges)
-
-  nmsed_edges = edge_detection.edgesNms(edges, orimap)
-  boxes = edge_boxes.getBoundingBoxes(nmsed_edges, orimap)
-
-  default_box = np.array([[0, 0, 1, 1]], dtype=np.float32)
-
-  num_boxes = len(boxes)
-  if 0 == num_boxes:
-    return 0, np.tile(default_box, reps=[max_num_boxes, 1])
-
-  x, y, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-  boxes = np.stack([y / height, x / width, (y + h) / height, (x + w) / width],
-                   axis=-1).astype(np.float32)
-
-  boxes = np.concatenate(
-      [boxes, np.tile(default_box, reps=[max_num_boxes - num_boxes, 1])],
-      axis=0)
-  # tf.logging.info('_py_get_edge_boxes is called, num_boxes=%i.', num_boxes)
-  return num_boxes, boxes
 
 
 def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes):
@@ -243,3 +188,110 @@ def get_edge_boxes(image, edge_detection, edge_boxes, max_num_boxes):
     return [num_boxes, boxes]
 
   return tf.map_fn(_get_fn, elems=image, dtype=[tf.int64, tf.float32])
+
+
+def resize_image_to_size(image,
+                         new_height=600,
+                         new_width=1024,
+                         method=tf.image.ResizeMethod.BILINEAR,
+                         align_corners=False):
+  """Resizes images to the given height and width.
+
+  Args:
+    image: A 3D tensor of shape [height, width, channels]
+    new_height: (optional) (scalar) desired height of the image.
+    new_width: (optional) (scalar) desired width of the image.
+    method: (optional) interpolation method used in resizing. Defaults to 
+      BILINEAR.
+    align_corners: bool. If true, exactly align all 4 corners of the input
+      and output. Defaults to False.
+
+  Returns:
+    resized_image: A tensor of size [new_height, new_width, channels].
+    resized_image_shape: A 1D tensor of shape [3] containing the shape of the
+      resized image.
+  """
+  with tf.name_scope("resize_image_to_size"):
+    new_image = tf.image.resize_images(
+        image,
+        tf.stack([new_height, new_width]),
+        method=method,
+        align_corners=align_corners)
+    image_shape = utils.get_tensor_shape(image)
+    return new_image, tf.stack([new_height, new_width, image_shape[2]])
+
+
+def resize_image_to_max_dimension(image,
+                                  max_dimension=None,
+                                  method=tf.image.ResizeMethod.BILINEAR,
+                                  align_corners=False,
+                                  pad_to_max_dimension=False,
+                                  per_channel_pad_value=(0, 0, 0)):
+  """Resizes an image so its dimensions are within the provided value.
+
+  Args:
+    image: A 3D tensor of shape [height, width, channels]
+    max_dimension: (optional) (scalar) maximum allowed size
+      of the larger image dimension.
+    method: (optional) interpolation method used in resizing. Defaults to
+      BILINEAR.
+    align_corners: bool. If true, exactly align all 4 corners of the input
+      and output. Defaults to False.
+    pad_to_max_dimension: Whether to resize the image and pad it with zeros
+      so the resulting image is of the spatial size
+      [max_dimension, max_dimension].
+    per_channel_pad_value: A tuple of per-channel scalar value to use for
+      padding. By default pads zeros.
+
+  Returns:
+    resized_image: A 3D tensor of shape [new_height, new_width, channels],
+      where the image has been resized (with bilinear interpolation) so that
+      max(new_height, new_width) == max_dimension.
+    resized_image_shape: A 1D tensor of shape [3] containing shape of the
+      resized image.
+
+  Raises:
+    ValueError: if the image is not a 3D tensor.
+  """
+
+  def _compute_new_dynamic_size(image, max_dimension):
+    """Compute new dynamic shape for resize_image_to_max_dimesion method."""
+
+    image_shape = tf.shape(image)
+    orig_height = tf.to_float(image_shape[0])
+    orig_width = tf.to_float(image_shape[1])
+
+    orig_max_dim = tf.maximum(orig_height, orig_width)
+    scale_factor = tf.cast(max_dimension, dtype=tf.float32) / orig_max_dim
+
+    new_height = tf.to_int32(tf.round(orig_height * scale_factor))
+    new_width = tf.to_int32(tf.round(orig_width * scale_factor))
+    new_size = tf.stack([new_height, new_width, image_shape[2]])
+
+    return new_size
+
+  if len(image.get_shape()) != 3:
+    raise ValueError('Image should be 3D tensor')
+
+  with tf.name_scope("resize_image_to_range"):
+    new_size = _compute_new_dynamic_size(image, max_dimension)
+    new_image = tf.image.resize_images(
+        image, new_size[:-1], method=method, align_corners=align_corners)
+
+    if pad_to_max_dimension:
+      channels = tf.unstack(new_image, axis=2)
+      if len(channels) != len(per_channel_pad_value):
+        raise ValueError(
+            'Number of channels must be equal to the length of per-channel pad value.'
+        )
+      new_image = tf.stack([
+          tf.pad(
+              channels[i], [[0, max_dimension - new_size[0]],
+                            [0, max_dimension - new_size[1]]],
+              constant_values=per_channel_pad_value[i])
+          for i in range(len(channels))
+      ],
+                           axis=2)
+      new_image.set_shape([max_dimension, max_dimension, 3])
+
+    return new_image, new_size

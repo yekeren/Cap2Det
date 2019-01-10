@@ -46,7 +46,7 @@ class PreprocessTest(tf.test.TestCase):
     g = tf.Graph()
     with g.as_default():
       image = tf.placeholder(tf.uint8, [None, None, 3])
-      preprocessed = preprocess.preprocess(image, options)
+      preprocessed = preprocess.preprocess_image(image, options)
 
       filename = os.path.join(_TESTDATA, _TESTFILE)
       image_data = cv2.imread(filename)[:, :, ::-1].copy()
@@ -129,6 +129,46 @@ class PreprocessTest(tf.test.TestCase):
           random_saturation_upper: 1.4
           """, options)
       self._preprocess(options, "preprocess_%i" % (index))
+
+  def test_parse_texts(self):
+    tf.reset_default_graph()
+
+    tokens = tf.placeholder(dtype=tf.string, shape=[None])
+    offsets = tf.placeholder(dtype=tf.int64, shape=[None])
+    lengths = tf.placeholder(dtype=tf.int64, shape=[None])
+
+    # Lengths of offsets and lengths are not matched.
+
+    (num_texts, text_strings, text_lengths) = preprocess.parse_texts(
+        tokens, offsets, lengths)
+
+    with self.test_session() as sess:
+      with self.assertRaises(tf.errors.InvalidArgumentError):
+        (num_caps, cap_strings, cap_lengths) = sess.run(
+            [num_texts, text_strings, text_lengths],
+            feed_dict={
+                tokens: ["first", "second", "text", "the", "third", "text"],
+                offsets: [0, 1],
+                lengths: [1, 2, 3]
+            })
+
+    # Basic tests.
+
+    (num_texts, text_strings, text_lengths) = preprocess.parse_texts(
+        tokens, offsets, lengths)
+    with self.test_session() as sess:
+      (num_caps, cap_strings, cap_lengths) = sess.run(
+          [num_texts, text_strings, text_lengths],
+          feed_dict={
+              tokens: ["first", "second", "text", "the", "third", "text"],
+              offsets: [0, 1, 3],
+              lengths: [1, 2, 3]
+          })
+      self.assertEqual(num_caps, 3)
+      self.assertAllEqual(cap_strings,
+                          [[b"first", b"", b""], [b"second", b"text", b""],
+                           [b"the", b"third", b"text"]])
+      self.assertAllEqual(cap_lengths, [1, 2, 3])
 
 
 if __name__ == '__main__':

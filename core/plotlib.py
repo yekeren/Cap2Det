@@ -123,13 +123,14 @@ def _py_draw_rectangles(image,
           pt2=(xmin + thickness + text_w, ymin + thickness + text_h),
           color=color,
           thickness=-1)
+      text_color = BLACK if color != BLACK else WHITE
       cv2.putText(
           canvas,
           text,
           org=(xmin, ymin + text_h),
           fontFace=_FONTFACE,
           fontScale=fontscale,
-          color=BLACK,
+          color=text_color,
           thickness=thickness)
   return canvas
 
@@ -293,7 +294,7 @@ def draw_rectangles(image,
 
   batch, num_boxes, _ = utils.get_tensor_shape(boxes)
   if scores is None:
-    scores = tf.constant(1.0, shape=[batch, num_boxes], dtype=tf.float32)
+    scores = tf.constant(-9999.0, shape=[batch, num_boxes], dtype=tf.float32)
   if labels is None:
     labels = tf.constant("", shape=[batch, num_boxes], dtype=tf.string)
 

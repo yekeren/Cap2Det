@@ -5,6 +5,12 @@ from __future__ import print_function
 from protos import model_pb2
 from models import gap_model
 from protos import gap_model_pb2
+from models import cam_model
+from protos import cam_model_pb2
+from models import mil_model
+from protos import mil_model_pb2
+from models import voc_model
+from protos import voc_model_pb2
 
 
 def build(options, is_training=False):
@@ -25,6 +31,18 @@ def build(options, is_training=False):
 
   if options.HasExtension(gap_model_pb2.GAPModel.ext):
     return gap_model.Model(options.Extensions[gap_model_pb2.GAPModel.ext],
+                           is_training)
+
+  if options.HasExtension(cam_model_pb2.CAMModel.ext):
+    return cam_model.Model(options.Extensions[cam_model_pb2.CAMModel.ext],
+                           is_training)
+
+  if options.HasExtension(mil_model_pb2.MILModel.ext):
+    return mil_model.Model(options.Extensions[mil_model_pb2.MILModel.ext],
+                           is_training)
+
+  if options.HasExtension(voc_model_pb2.VOCModel.ext):
+    return voc_model.Model(options.Extensions[voc_model_pb2.VOCModel.ext],
                            is_training)
 
   raise ValueError('Unknown model: {}'.format(model))

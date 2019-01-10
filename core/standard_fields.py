@@ -11,6 +11,8 @@ class OperationNames(object):
   parse_single_example = "parse_single_example"
   decode_image = "decode_image"
   decode_caption = "decode_caption"
+  decode_proposal = "decode_proposal"
+  decode_bbox = "decode_bbox"
 
   # Prediction.
 
@@ -32,21 +34,61 @@ class OperationNames(object):
 
 class TFExampleDataFields(object):
   """Names for the fields defined in the tf::Example."""
+
+  # Basic image information.
+
   image_id = "image/source_id"
   image_encoded = "image/encoded"
+
+  # Caption annotations.
+
   caption_string = "image/caption/string"
   caption_offset = "image/caption/offset"
   caption_length = "image/caption/length"
+
+  # Bounding box annotations.
+  number_of_proposals = "image/proposal/num_proposals"
+  proposal_box = "image/proposal/bbox"
+  proposal_box_ymin = "image/proposal/bbox/ymin"
+  proposal_box_xmin = "image/proposal/bbox/xmin"
+  proposal_box_ymax = "image/proposal/bbox/ymax"
+  proposal_box_xmax = "image/proposal/bbox/xmax"
+
+  object_box = "image/object/bbox"
+  object_text = "image/object/class/text"
+  object_label = "image/object/class/label"
+
+  object_box_ymin = "image/object/bbox/ymin"
+  object_box_xmin = "image/object/bbox/xmin"
+  object_box_ymax = "image/object/bbox/ymax"
+  object_box_xmax = "image/object/bbox/xmax"
 
 
 class InputDataFields(object):
   """Names of the input tensors."""
   image = "image"
   image_id = "image_id"
+  image_shape = "image_shape"
+
   num_captions = "num_captions"
   caption_strings = "caption_strings"
   caption_lengths = "caption_lengths"
-  category_strings = "category_strings"
+  category_strings = "caption_strings"
+
+  num_objects = 'number_of_objects'
+  object_boxes = 'object_boxes'
+  object_texts = 'object_texts'
+
+  proposals = 'proposals'
+  num_proposals = 'number_of_proposals'
+
+
+class DetectionResultFields(object):
+  """Names of the output detection tensors."""
+  num_detections = 'num_detections'
+  detection_boxes = 'detection_boxes'
+  detection_scores= 'detection_scores'
+  detection_classes= 'detection_classes'
 
 
 class GAPPredictionTasks(object):
@@ -78,20 +120,71 @@ class GAPPredictions(object):
   word_saliency = "image_saliency"
   vocabulary = "vocabulary"
 
+
 class VOCPredictionTasks(object):
   """Prediction tasks of the VOC model."""
   class_labels = "class_labels"
+  image_saliency = "image_saliency"
+  image_score_map = "image_score_map"
 
 
 class VOCVariableScopes(object):
   """Variable scopes used in VOC model."""
-  cnn = "CNN"
+  cnn = "Cnn"
   image_proj = "image_proj"
 
 
 class VOCPredictions(object):
   """Predictions in the VOC model."""
-  image_id = "image_id"
-  class_labels = "class_labels"
+  class_label = "class_label"
   class_act_map = "class_act_map"
-  per_class_logits = "per_class_logits"
+
+
+class CAMTasks(object):
+  """Prediction tasks of the CAM model."""
+  image_label = "image_label"
+  class_act_map = "image_score_map"
+
+
+class CAMVariableScopes(object):
+  """Variable scopes used in CAM model."""
+  cnn = "Cnn"
+  image_proj = "image_proj"
+  image_proj_second = "image_proj_second"
+
+
+class CAMPredictions(object):
+  """Predictions in the CAM model."""
+  class_act_map_list = "class_act_map_list"
+  class_act_map = "image_score_map"
+  labels = "labels"
+  first_stage_logits_list = "first_stage_logits_list"
+  second_stage_logits = "second_stage_logits"
+  proposals = "proposals"
+  proposal_scores = "proposal_scores"
+
+
+class MILTasks(object):
+  """Prediction tasks of the MIL model."""
+  image_label = "image_label"
+  class_act_map = "image_score_map"
+
+
+class MILVariableScopes(object):
+  """Variable scopes used in MIL model."""
+  pass
+  #cnn = "cnn"
+  #image_proj = "image_proj"
+  #image_proj_second = "image_proj_second"
+
+
+class MILPredictions(object):
+  """Predictions in the MIL model."""
+  midn_logits = 'midn_logits'
+  #class_act_map_list = "class_act_map_list"
+  #class_act_map = "image_score_map"
+  #labels = "labels"
+  #first_stage_logits_list = "first_stage_logits_list"
+  #second_stage_logits = "second_stage_logits"
+  #proposals = "proposals"
+  #proposal_scores = "proposal_scores"

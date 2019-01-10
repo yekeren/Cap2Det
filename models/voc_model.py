@@ -211,6 +211,7 @@ class Model(ModelBase):
       tf.summary.histogram('num_gt_boxes_per_image', caption_length)
       tf.summary.histogram('num_gt_labels_per_image',
                            tf.reduce_sum(classes, axis=-1))
+      classes.set_shape([batch, len(vocabulary_list)])
 
     return classes
 
@@ -240,7 +241,7 @@ class Model(ModelBase):
             activation_fn=None)
     return feature_map
 
-  def _predict_labels(self, examples):
+  def _calc_class_act_map(self, examples):
     """Builds tf graph for prediction.
 
     Args:
@@ -252,18 +253,9 @@ class Model(ModelBase):
     options = self._model_proto
     is_training = self._is_training
 
-    # Load the vocabulary.
-    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
-    tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
-
     # Extract input data fields.
 
-    (image, image_id, num_captions, caption_strings,
-     caption_lengths) = (examples[InputDataFields.image],
-                         examples[InputDataFields.image_id],
-                         examples[InputDataFields.num_captions],
-                         examples[InputDataFields.caption_strings],
-                         examples[InputDataFields.caption_lengths])
+    image = examples[InputDataFields.image]
 
     # Encode image use CNN.
 
@@ -277,6 +269,10 @@ class Model(ModelBase):
         cnn_checkpoint=options.cnn_checkpoint,
         cnn_scope=VOCVariableScopes.cnn,
         is_training=is_training)
+
+    # Load the vocabulary.
+    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
+    tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
 
     # Predict class activation map, shape =
     #   [batch, feature_height * feature_width, num_classes].
@@ -295,6 +291,42 @@ class Model(ModelBase):
         logits = tf.reduce_mean(class_act_map, axis=[1, 2])
 
       tf.summary.histogram('class_act_map', class_act_map)
+      tf.summary.histogram('logits', logits)
+
+    return {
+        VOCPredictions.class_act_map: class_act_map,
+        VOCPredictions.logits: logits,
+    }
+
+  def _predict_labels(self, examples):
+    """Builds tf graph for prediction.
+
+    Args:
+      examples: dict of input tensors keyed by name.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+    options = self._model_proto
+    is_training = self._is_training
+
+    # Extract input data fields.
+
+    (image, image_id, num_captions, caption_strings,
+     caption_lengths) = (examples[InputDataFields.image],
+                         examples[InputDataFields.image_id],
+                         examples[InputDataFields.num_captions],
+                         examples[InputDataFields.caption_strings],
+                         examples[InputDataFields.caption_lengths])
+
+    class_act_map_predictions = self._calc_class_act_map(examples)
+    (class_act_map,
+     logits) = (class_act_map_predictions[VOCPredictions.class_act_map],
+                class_act_map_predictions[VOCPredictions.logits])
+
+    # Load the vocabulary.
+    vocabulary_list = self._read_vocabulary(options.vocabulary_file)
+    tf.logging.info("Read a vocabulary with %i words.", len(vocabulary_list))
 
     # Encode labels, shape=[batch, num_classes].
 
@@ -303,48 +335,85 @@ class Model(ModelBase):
 
     # visualize
 
-    image_vis = tf.cast(image, tf.uint8)
-    image_vis = plotlib.draw_caption(
-        image_vis,
-        tf.reduce_join(caption_strings[:, 0, :], axis=-1, separator=','),
-        org=(5, 5),
-        fontscale=1.0,
-        color=(255, 0, 0),
-        thickness=1)
-    image_vis = plotlib.draw_caption(
-        image_vis,
-        tf.gather(vocabulary_list, tf.argmax(logits, axis=-1)),
-        org=(5, 25),
-        fontscale=1.0,
-        color=(255, 0, 0),
-        thickness=1)
-
-    class_act_map_list = []
-    batch_size, height, width, _ = utils.get_tensor_shape(image_vis)
-    for i, x in enumerate(tf.unstack(class_act_map, axis=-1)):
-      x = plotlib.convert_to_heatmap(x, normalize=True, normalize_to=[-4, 4])
-      #x = tf.image.resize_images(x, [height, width], tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-      x = tf.image.resize_images(x, [height, width])
-      x = imgproc.gaussian_filter(x, ksize=32)
-      x = tf.image.convert_image_dtype(x, tf.uint8)
-      x = plotlib.draw_caption(
-          x,
-          tf.tile(tf.expand_dims(vocabulary_list[i], axis=0), [batch_size]),
+    with tf.name_scope("visualize"):
+      image_vis = tf.cast(image, tf.uint8)
+      image_vis = plotlib.draw_caption(
+          image_vis,
+          tf.reduce_join(caption_strings[:, 0, :], axis=-1, separator=','),
           org=(5, 5),
           fontscale=1.0,
           color=(255, 0, 0),
           thickness=1)
-      class_act_map_list.append(x)
-    tf.summary.image(
-        "image",
-        tf.concat([image_vis] + class_act_map_list, axis=2),
-        max_outputs=1)
+      image_vis = plotlib.draw_caption(
+          image_vis,
+          tf.gather(vocabulary_list, tf.argmax(logits, axis=-1)),
+          org=(5, 25),
+          fontscale=1.0,
+          color=(255, 0, 0),
+          thickness=1)
+
+      class_act_map_list = []
+      batch_size, height, width, _ = utils.get_tensor_shape(image_vis)
+      for i, x in enumerate(tf.unstack(class_act_map, axis=-1)):
+        x = plotlib.convert_to_heatmap(x, normalize=True, normalize_to=[-4, 4])
+        #x = tf.image.resize_images(x, [height, width], tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        x = tf.image.resize_images(x, [height, width])
+        x = imgproc.gaussian_filter(x, ksize=32)
+        x = tf.image.convert_image_dtype(x, tf.uint8)
+        x = plotlib.draw_caption(
+            x,
+            tf.tile(tf.expand_dims(vocabulary_list[i], axis=0), [batch_size]),
+            org=(5, 5),
+            fontscale=1.0,
+            color=(255, 0, 0),
+            thickness=1)
+        class_act_map_list.append(x)
+      tf.summary.image(
+          "image",
+          tf.concat([image_vis] + class_act_map_list, axis=2),
+          max_outputs=1)
 
     predictions = {
         VOCPredictions.image_id: image_id,
         VOCPredictions.class_labels: class_labels,
         VOCPredictions.class_act_map: class_act_map,
-        VOCPredictions.per_class_logits: logits,
+        VOCPredictions.logits: logits,
+    }
+
+    return predictions
+
+  def _predict_image_score_map(self, examples):
+    """Builds tf graph for .
+
+    Args:
+      examples: dict of input tensors keyed by name.
+
+    Returns:
+      predictions: dict of prediction results keyed by name.
+    """
+    options = self._model_proto
+    is_training = self._is_training
+
+    image = examples[InputDataFields.image]
+
+    # Keep image size for resizing saliency and activation map later.
+    batch, height, width, channels = utils.get_tensor_shape(image)
+
+    class_act_map_predictions = self._calc_class_act_map(examples)
+    class_act_map = class_act_map_predictions[VOCPredictions.class_act_map]
+
+    def _resize_fn(image, ksize=32):
+      resized_image = tf.image.resize_images(image, [height, width])
+      if ksize:
+        smoothed_image = imgproc.gaussian_filter(resized_image, ksize=ksize)
+      else:
+        smoothed_image = resized_image
+
+      return smoothed_image
+
+    predictions = {
+        VOCPredictionTasks.image_saliency: tf.zeros([batch, height, width, 1]),
+        VOCPredictionTasks.image_score_map: _resize_fn(class_act_map),
     }
 
     return predictions
@@ -365,6 +434,8 @@ class Model(ModelBase):
 
     if prediction_task == VOCPredictionTasks.class_labels:
       return self._predict_labels(examples)
+    elif prediction_task == VOCPredictionTasks.image_score_map:
+      return self._predict_image_score_map(examples)
 
     raise ValueError("Invalid prediction task %s" % (prediction_task))
 
@@ -381,13 +452,10 @@ class Model(ModelBase):
 
     with tf.name_scope('Losses'):
       (image_id, class_act_map, class_labels,
-       per_class_logits) = (predictions[VOCPredictions.image_id],
-                            predictions[VOCPredictions.class_act_map],
-                            predictions[VOCPredictions.class_labels],
-                            predictions[VOCPredictions.per_class_logits])
-
-      # logits = tf.reduce_max(class_act_map, axis=[1, 2])
-      logits = per_class_logits
+       logits) = (predictions[VOCPredictions.image_id],
+                  predictions[VOCPredictions.class_act_map],
+                  predictions[VOCPredictions.class_labels],
+                  predictions[VOCPredictions.logits])
 
       class_labels = tf.cast(class_labels, tf.float32)
 
@@ -421,18 +489,26 @@ class Model(ModelBase):
     """
     with tf.name_scope('Evaluation'):
       (image_id, class_act_map, class_labels,
-       per_class_logits) = (predictions[VOCPredictions.image_id],
-                            predictions[VOCPredictions.class_act_map],
-                            predictions[VOCPredictions.class_labels],
-                            predictions[VOCPredictions.per_class_logits])
-
-      # logits = tf.reduce_max(class_act_map, axis=[1, 2])
-      logits = per_class_logits
+       logits) = (predictions[VOCPredictions.image_id],
+                  predictions[VOCPredictions.class_act_map],
+                  predictions[VOCPredictions.class_labels],
+                  predictions[VOCPredictions.logits])
 
       metrics = {}
-      metric, update_op = tf.metrics.accuracy(
-          labels=tf.argmax(class_labels, axis=-1),
-          predictions=tf.argmax(logits, axis=-1))
-      metrics.update({'accuracy': (metric, update_op)})
+      metrics.update({
+          'accuracy':
+          tf.metrics.accuracy(
+              labels=tf.argmax(class_labels, axis=-1),
+              predictions=tf.argmax(logits, axis=-1))
+      })
+
+      for top_k in [1, 3, 5]:
+        for (label, logit) in zip(
+            tf.unstack(class_labels, axis=0), tf.unstack(logits, axis=0)):
+          label_indices = tf.squeeze(tf.where(tf.greater(label, 0)), axis=-1)
+          map_val, map_update = tf.metrics.average_precision_at_k(
+              labels=label_indices, predictions=logit, k=top_k)
+
+          metrics.update({'mAP_top%d' % top_k: (map_val, map_update)})
 
     return metrics

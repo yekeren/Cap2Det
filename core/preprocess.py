@@ -39,7 +39,7 @@ def random_crop(image, random_crop_min_scale):
   return image
 
 
-def preprocess(image, options):
+def preprocess_image(image, options):
   """Preprocesses an image.
 
   Args:
@@ -107,3 +107,70 @@ def preprocess(image, options):
       false_fn=lambda: image)
 
   return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
+
+
+def parse_texts(tokens, offsets, lengths):
+  """Parses and pads texts.
+
+  Args:
+    tokens: a [num_tokens] tf.string tensor denoting token buffer.
+    offsets: a [num_texts] tf.int64 tensor, denoting the offset of each
+      text in the token buffer.
+    lengths: a [num_texts] tf.int64 tensor, denoting the length of each
+      text.
+
+  Returns:
+    num_texts: number of texts after padding.
+    text_strings: [num_texts, max_text_length] tf.string tensor.
+    text_lengths: [num_texts] tf.int64 tensor.
+  """
+  max_text_length = tf.maximum(tf.reduce_max(lengths), 0)
+
+  num_offsets = tf.shape(offsets)[0]
+  num_lengths = tf.shape(lengths)[0]
+
+  assert_op = tf.Assert(
+      tf.equal(num_offsets, num_lengths),
+      ["Not equal: num_offsets and num_lengths", num_offsets, num_lengths])
+
+  with tf.control_dependencies([assert_op]):
+    num_texts = num_offsets
+
+    i = tf.constant(0)
+    text_strings = tf.fill(tf.stack([0, max_text_length], axis=0), "")
+    text_lengths = tf.constant(0, dtype=tf.int64, shape=[0])
+
+    def _body(i, text_strings, text_lengths):
+      """Executes the while loop body.
+
+      Note, this function trims or pads texts to make them the same lengths.
+
+      Args:
+        i: index of both offsets/lengths tensors.
+        text_strings: aggregated text strings tensor.
+        text_lengths: aggregated text lengths tensor.
+      """
+      offset = offsets[i]
+      length = lengths[i]
+
+      pad = tf.fill(tf.expand_dims(max_text_length - length, axis=0), "")
+      text = tokens[offset:offset + length]
+      text = tf.concat([text, pad], axis=0)
+      text_strings = tf.concat([text_strings, tf.expand_dims(text, 0)], axis=0)
+      text_lengths = tf.concat(
+          [text_lengths, tf.expand_dims(length, 0)], axis=0)
+      return i + 1, text_strings, text_lengths
+
+    cond = lambda i, unused_strs, unused_lens: tf.less(i, num_texts)
+    (_, text_strings, text_lengths) = tf.while_loop(
+        cond,
+        _body,
+        loop_vars=[i, text_strings, text_lengths],
+        shape_invariants=[
+            i.get_shape(),
+            tf.TensorShape([None, None]),
+            tf.TensorShape([None])
+        ])
+
+  return num_texts, text_strings, text_lengths
+

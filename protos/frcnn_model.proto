@@ -1,0 +1,74 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+import "protos/hyperparams.proto";
+
+
+message FRCNNModel {
+  extend Model {
+    optional FRCNNModel ext = 1010;
+  }
+
+  // Feature extractor config.
+  optional FasterRcnnFeatureExtractor feature_extractor = 1;
+
+  // Whether to update batch_norm inplace during training. This is required
+  // for batch norm to work correctly on TPUs. When this is false, user must add
+  // a control dependency on tf.GraphKeys.UPDATE_OPS for train/loss op in order
+  // to update the batch norm moving average parameters.
+  optional bool inplace_batchnorm_update = 2 [default = false];
+
+  // Output size (width and height are set to be the same) of the initial
+  // bilinear interpolation based cropping during ROI pooling.
+  optional int32 initial_crop_size = 3;
+
+  // Kernel size of the max pool op on the cropped feature map during
+  // ROI pooling.
+  optional int32 maxpool_kernel_size = 4;
+
+  // Stride of the max pool op on the cropped feature map during ROI pooling.
+  optional int32 maxpool_stride = 5;
+
+  // Keep probability of the dropout layer.
+  optional float dropout_keep_prob = 6 [default = 1.0];
+
+  // Path to the pre-trained checkpoint.
+  optional string checkpoint_path = 7;
+
+  // Path to the detection vocabulary file.
+  optional string vocabulary_file = 8;
+
+  // Hyperparams of all the FC layers.
+  optional Hyperparams fc_hyperparams = 9;
+
+  // Attention targets
+  //  LOGITS: apply attention to the final logits
+  //  FEATURES: apply attention to the penultimate features.
+  enum AttentionTarget {
+    LOGITS = 1;
+    FEATURES = 2;
+  }
+
+  // Specify the attention target.
+  optional AttentionTarget attention_target = 10 [default = LOGITS];
+
+  // OICR iterations.
+  optional int32 oicr_iterations = 11 [default = 0];
+
+  // OICR IoU threshold.
+  optional float oicr_iou_threshold = 12 [default = 0.5];
+}
+
+message FasterRcnnFeatureExtractor {
+  // Type of Faster R-CNN model (e.g., 'faster_rcnn_resnet101';
+  // See builders/model_builder.py for expected types).
+  optional string type = 1;
+
+  // Output stride of extracted RPN feature map.
+  optional int32 first_stage_features_stride = 2 [default=16];
+
+  // Whether to update batch norm parameters during training or not.
+  // When training with a relative large batch size (e.g. 8), it could be
+  // desirable to enable batch norm update.
+  optional bool batch_norm_trainable = 3 [default=false];
+}

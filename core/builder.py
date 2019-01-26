@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 from core import imgproc
+from core import utils
 
 from protos import image_resizer_pb2
 
@@ -25,6 +26,12 @@ def build_image_resizer(options):
         'The options has to be an instance of image_resizer_pb2.ImageResizer.')
 
   image_resizer_oneof = options.WhichOneof('image_resizer_oneof')
+
+  if 'default_resizer' == image_resizer_oneof:
+    def _default_resize_fn(image):
+      image_shape = utils.get_tensor_shape(image)
+      return tf.cast(image, tf.float32), image_shape
+    return _default_resize_fn
 
   if 'fixed_shape_resizer' == image_resizer_oneof:
     options = options.fixed_shape_resizer

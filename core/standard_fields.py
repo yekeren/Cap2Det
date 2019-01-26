@@ -85,6 +85,9 @@ class InputDataFields(object):
 
 class DetectionResultFields(object):
   """Names of the output detection tensors."""
+  num_proposals = 'num_proposals'
+  proposal_boxes = 'proposal_boxes'
+
   num_detections = 'num_detections'
   detection_boxes = 'detection_boxes'
   detection_scores= 'detection_scores'
@@ -164,23 +167,26 @@ class CAMPredictions(object):
   proposal_scores = "proposal_scores"
 
 
-class MILTasks(object):
-  """Prediction tasks of the MIL model."""
+class OICRTasks(object):
+  """Prediction tasks of the OICR model."""
   image_label = "image_label"
   class_act_map = "image_score_map"
 
 
-class MILVariableScopes(object):
-  """Variable scopes used in MIL model."""
+class OICRVariableScopes(object):
+  """Variable scopes used in OICR model."""
   pass
   #cnn = "cnn"
   #image_proj = "image_proj"
   #image_proj_second = "image_proj_second"
 
 
-class MILPredictions(object):
-  """Predictions in the MIL model."""
+class OICRPredictions(object):
+  """Predictions in the OICR model."""
   midn_logits = 'midn_logits'
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+  midn_proposal_scores = 'midn_proposal_scores'
   #class_act_map_list = "class_act_map_list"
   #class_act_map = "image_score_map"
   #labels = "labels"

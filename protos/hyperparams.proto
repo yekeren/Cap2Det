@@ -70,6 +70,8 @@ message Initializer {
     TruncatedNormalInitializer truncated_normal_initializer = 1;
     VarianceScalingInitializer variance_scaling_initializer = 2;
     RandomNormalInitializer random_normal_initializer = 3;
+    GlorotNormalInitializer glorot_normal_initializer = 4;
+    GlorotUniformInitializer glorot_uniform_initializer = 5;
   }
 }
 
@@ -101,6 +103,12 @@ message RandomNormalInitializer {
   optional float stddev = 2 [default = 1.0];
 }
 
+message GlorotNormalInitializer {
+}
+
+message GlorotUniformInitializer {
+}
+
 // Configuration proto for batch norm to apply after convolution op. See
 // https://www.tensorflow.org/api_docs/python/tf/contrib/layers/batch_norm
 message BatchNorm {
@@ -113,3 +121,4 @@ message BatchNorm {
   // forward pass but they are never updated.
   optional bool train = 5 [default = true];
 }
+

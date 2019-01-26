@@ -64,7 +64,7 @@ class ModelBase(object):
     Returns:
       a list of model variables or None by default.
     """
-    return None
+    return tf.trainable_variables()
 
   def get_scaffold(self):
     """Returns scaffold object used to initialize variables.
@@ -72,4 +72,4 @@ class ModelBase(object):
     Returns:
       a tf.train.Scaffold instance or None by default.
     """
-    return None
+    return tf.train.Scaffold()

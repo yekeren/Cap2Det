@@ -13,7 +13,13 @@ from google.protobuf import text_format
 from core.standard_fields import InputDataFields
 from core.standard_fields import DetectionResultFields
 from protos import pipeline_pb2
+from protos import mil_model_pb2
+from protos import oicr_model_pb2
+from protos import oicr_dilated_model_pb2
+from protos import multi_resol_model_pb2
+from protos import frcnn_model_pb2
 from train import trainer
+from core.plotlib import _py_draw_rectangles
 
 from object_detection.utils import object_detection_evaluation
 
@@ -55,70 +61,82 @@ def _load_pipeline_proto(filename):
   return pipeline_proto
 
 
-def _run_evaluation(pipeline_proto, checkpoint_path, evaluator, category_to_id):
+def _run_evaluation(pipeline_proto, checkpoint_path, evaluators,
+                    category_to_id):
   """Runs the prediction.
 
   Args:
     pipeline_proto: An instance of pipeline_pb2.Pipeline.
     checkpoint_path: Path to the checkpoint file.
-    evaluator: An instance of object_detection_evaluation.DetectionEvaluator.
+    evaluators: A list of object_detection_evaluation.DetectionEvaluator.
     category_to_id: A python dict maps from the category name to integer id.
   """
   count = 0
-  summary = tf.Summary()
   for examples in trainer.predict(pipeline_proto, checkpoint_path):
-    for i in range(len(examples[InputDataFields.image_id])):
-      (image_id, num_groundtruths, groundtruth_boxes, groundtruth_classes,
-       num_detections, detection_boxes, detection_scores, detection_classes,
-       summary_bytes) = (examples[InputDataFields.image_id][i],
-                         examples[InputDataFields.num_objects][i],
-                         examples[InputDataFields.object_boxes][i],
-                         examples[InputDataFields.object_texts][i],
-                         examples[DetectionResultFields.num_detections][i],
-                         examples[DetectionResultFields.detection_boxes][i],
-                         examples[DetectionResultFields.detection_scores][i],
-                         examples[DetectionResultFields.detection_classes][i],
-                         examples['summary'])
-      if count == 0:
-        summary = summary.FromString(summary_bytes)
+    batch_size = len(examples[InputDataFields.image_id])
+    summary_bytes = examples['summary']
 
-      # Add ground-truth annotations.
+    if count == 0:
+      summary = tf.Summary().FromString(summary_bytes)
 
-      evaluator.add_single_ground_truth_image_info(
-          image_id, {
-              'groundtruth_boxes':
-              groundtruth_boxes[:num_groundtruths],
-              'groundtruth_classes':
-              np.array([
-                  category_to_id[x.decode('utf8')]
-                  for x in groundtruth_classes[:num_groundtruths]
-              ]),
-              'groundtruth_difficult':
-              np.zeros([num_groundtruths], dtype=np.bool)
-          })
+    for i in range(batch_size):
+      (image_id, num_groundtruths, groundtruth_boxes,
+       groundtruth_classes) = (examples[InputDataFields.image_id][i],
+                               examples[InputDataFields.num_objects][i],
+                               examples[InputDataFields.object_boxes][i],
+                               examples[InputDataFields.object_texts][i])
 
-      # Add detection results.
+      for oicr_iter, evaluator in enumerate(evaluators):
 
-      evaluator.add_single_detected_image_info(
-          image_id, {
-              'detection_boxes': detection_boxes[:num_detections],
-              'detection_scores': detection_scores[:num_detections],
-              'detection_classes': detection_classes[:num_detections]
-          })
+        num_detections, detection_boxes, detection_scores, detection_classes = (
+            examples[DetectionResultFields.num_detections +
+                     '_at_{}'.format(oicr_iter)][i],
+            examples[DetectionResultFields.detection_boxes +
+                     '_at_{}'.format(oicr_iter)][i],
+            examples[DetectionResultFields.detection_scores +
+                     '_at_{}'.format(oicr_iter)][i],
+            examples[DetectionResultFields.detection_classes +
+                     '_at_{}'.format(oicr_iter)][i])
+
+        # Add ground-truth annotations.
+
+        evaluator.add_single_ground_truth_image_info(
+            image_id, {
+                'groundtruth_boxes':
+                groundtruth_boxes[:num_groundtruths],
+                'groundtruth_classes':
+                np.array([
+                    category_to_id[x.decode('utf8')]
+                    for x in groundtruth_classes[:num_groundtruths]
+                ]),
+                'groundtruth_difficult':
+                np.zeros([num_groundtruths], dtype=np.bool)
+            })
+
+        # Add detection results.
+
+        evaluator.add_single_detected_image_info(
+            image_id, {
+                'detection_boxes': detection_boxes[:num_detections],
+                'detection_scores': detection_scores[:num_detections],
+                'detection_classes': detection_classes[:num_detections]
+            })
+
       count += 1
       if count % 50 == 0:
         tf.logging.info('On image %i.', count)
     if count > FLAGS.eval_steps:
       break
 
-  metrics = evaluator.evaluate()
-  evaluator.clear()
-  tf.logging.info('\n%s', json.dumps(metrics, indent=2))
+  for oicr_iter, evaluator in enumerate(evaluators):
+    metrics = evaluator.evaluate()
+    evaluator.clear()
+    tf.logging.info('\n%s', json.dumps(metrics, indent=2))
 
-  for k, v in metrics.items():
-    summary.value.add(tag='{}'.format(k), simple_value=v)
+    for k, v in metrics.items():
+      summary.value.add(tag='{}_iter{}'.format(k, oicr_iter), simple_value=v)
 
-  return metrics, summary
+  return summary
 
 
 def main(_):
@@ -143,8 +161,30 @@ def main(_):
 
   # Create the evaluator.
 
+  number_of_evaluators = 0
+  if pipeline_proto.model.HasExtension(mil_model_pb2.MILModel.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        mil_model_pb2.MILModel.ext].oicr_iterations
+  if pipeline_proto.model.HasExtension(oicr_model_pb2.OICRModel.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        oicr_model_pb2.OICRModel.ext].oicr_iterations
+  if pipeline_proto.model.HasExtension(oicr_dilated_model_pb2.OICRDilatedModel.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        oicr_dilated_model_pb2.OICRDilatedModel.ext].oicr_iterations
+  if pipeline_proto.model.HasExtension(multi_resol_model_pb2.MultiResolModel.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        multi_resol_model_pb2.MultiResolModel.ext].oicr_iterations
+  if pipeline_proto.model.HasExtension(frcnn_model_pb2.FRCNNModel.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        frcnn_model_pb2.FRCNNModel.ext].oicr_iterations
+
+  number_of_evaluators = max(1, number_of_evaluators) 
+
   if FLAGS.evaluator.lower() == 'pascal':
-    evaluator = object_detection_evaluation.PascalDetectionEvaluator(categories)
+    evaluators = [
+        object_detection_evaluation.PascalDetectionEvaluator(categories)
+        for i in range(number_of_evaluators)
+    ]
   else:
     raise ValueError('Invalid evaluator {}.'.format(FLAGS.evaluator))
 
@@ -156,20 +196,21 @@ def main(_):
     if checkpoint_path is not None:
       global_step = int(checkpoint_path.split('-')[-1])
 
-      if global_step != latest_step and global_step > 500:
+      if global_step != latest_step and global_step > 400:
 
         # Evaluate the checkpoint.
 
         latest_step = global_step
         tf.logging.info('Start to evaluate checkpoint %s.', checkpoint_path)
 
-        metrics, summary = _run_evaluation(pipeline_proto, checkpoint_path,
-                                           evaluator, category_to_id)
+        summary = _run_evaluation(pipeline_proto, checkpoint_path, evaluators,
+                                  category_to_id)
 
         # Write summary.
         summary_writer = tf.summary.FileWriter(FLAGS.eval_log_dir)
         summary_writer.add_summary(summary, global_step=global_step)
         summary_writer.close()
+        tf.logging.info("Summary is written.")
         continue
     tf.logging.info("Wait for 10 seconds.")
     time.sleep(10)

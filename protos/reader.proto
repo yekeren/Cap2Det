@@ -1,6 +1,7 @@
 syntax = "proto2";
 
 import "protos/preprocess.proto";
+import "protos/image_resizer.proto";
 
 message Reader {
   // Pattern of the input files.
@@ -24,18 +25,36 @@ message Reader {
   // Batch size.
   optional int32 batch_size = 8 [default = 32];
 
-  // Height of the resized image.
-  optional int32 image_height = 11 [default = 224];
+  // Height of the resized image, depreated, see `image_resizer` for update.
+  optional int32 image_height = 11 [deprecated = true];
 
-  // Width of the resized image.
-  optional int32 image_width = 12 [default = 224];
+  // Width of the resized image, deprecated, see `image_resizer` for update.
+  optional int32 image_width = 12 [deprecated = true];
 
-  // Image channels.
-  optional int32 image_channels = 13 [default = 3];
+  // Image channels, deprecated.
+  optional int32 image_channels = 13 [deprecated = true];
+
+  // Image resizer.
+  optional ImageResizer image_resizer = 14;
 
   // Maximum length of the captions.
-  optional int32 max_caption_length = 14 [default = 20];
+  optional int32 max_caption_length = 15 [deprecated = true];
 
   // Preprocess options.
-  optional Preprocess preprocess_options = 15;
+  optional Preprocess preprocess_options = 16;
+
+  // Pad to the max number of proposals to ensure static shape.
+  optional int32 max_num_proposals = 23 [default = 300];
+
+  // If true, shuffle proposals at training time.
+  optional bool shuffle_proposals = 24 [default = false];
+
+  // If true, resize the image randomly.
+  optional bool batch_resize_scale = 25 [default = false];
+
+  // Lower bound of the resizing factor.
+  optional float batch_resize_scale_lower = 26 [default = 0.7];
+
+  // Upper bound of the resizing factor.
+  optional float batch_resize_scale_upper = 27 [default = 1.0];
 }

@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from models.model_base import ModelBase
-from protos import mil_model_pb2
+from protos import oicr_dilated_model_pb2
 
 from nets import nets_factory
 from core import imgproc
@@ -33,13 +33,14 @@ class Model(ModelBase):
     """Initializes the model.
 
     Args:
-      model_proto: an instance of mil_model_pb2.MILModel
+      model_proto: an instance of oicr_dilated_model_pb2.OICRDilatedModel
       is_training: if True, training graph will be built.
     """
     super(Model, self).__init__(model_proto, is_training)
 
-    if not isinstance(model_proto, mil_model_pb2.MILModel):
-      raise ValueError('The model_proto has to be an instance of MILModel.')
+    if not isinstance(model_proto, oicr_dilated_model_pb2.OICRDilatedModel):
+      raise ValueError(
+          'The model_proto has to be an instance of OICRDilatedModel.')
 
     self._vocabulary_list = model_utils.read_vocabulary(
         model_proto.vocabulary_file)
@@ -80,6 +81,7 @@ class Model(ModelBase):
                             proposal_scores,
                             proposal_labels=None,
                             top_k=5,
+                            threshold=0.01,
                             height=224,
                             width=224,
                             name='midn'):
@@ -102,6 +104,9 @@ class Model(ModelBase):
       (top_k_boxes, top_k_scores,
        top_k_labels) = model_utils.get_top_k_boxes_and_scores(
            proposals, proposal_scores, proposal_labels, k=top_k)
+
+      proposal_scores = tf.where(proposal_scores > threshold, proposal_scores,
+                                 -9999.0 * tf.ones_like(proposal_scores))
       image = plotlib.draw_rectangles(
           image,
           boxes=top_k_boxes,
@@ -149,13 +154,6 @@ class Model(ModelBase):
             ksize=[1, pool_h, pool_w, 1],
             strides=[1, stride_h, stride_w, 1],
             padding='SAME')
-        tf.summary.histogram('oicr/spp_bins_{}'.format(bins), pool)
-        tf.summary.scalar('oicr/spp_bins_min_{}'.format(bins),
-                          tf.reduce_min(pool))
-        tf.summary.scalar('oicr/spp_bins_max_{}'.format(bins),
-                          tf.reduce_max(pool))
-        tf.summary.scalar('oicr/spp_bins_avg_{}'.format(bins),
-                          tf.reduce_mean(pool))
         pool_outputs.append(tf.reshape(pool, [batch, -1]))
         tf.logging.info(
             'SPP bins=%i, bin_size=(%i,%i), strides=(%i, %i), output=%s', bins,
@@ -166,102 +164,6 @@ class Model(ModelBase):
 
     return spp_pool
 
-  def _calc_conv_proposal_feature(self, image_feature_cropped):
-    """Calculates proposal feature using spp.
-
-    Args:
-      image_feature_cropped: A [batch, crop_size, crop_size, feature_dims]
-        float tensor.
-
-    Returns:
-      proposal_feature: A [batch, proposal_feature_dims] float tensor.
-    """
-    options = self._model_proto
-    is_training = self._is_training
-
-    with slim.arg_scope(
-        build_hyperparams(options.conv_hyperparams, is_training)):
-      net = image_feature_cropped
-
-      with tf.variable_scope('conv_hidden_layers'):
-
-        with tf.variable_scope('reduce'):
-          net = slim.conv2d(
-              net, num_outputs=96, kernel_size=[1, 1], padding='SAME')
-          net = slim.dropout(
-              net, options.hidden_dropout_keep_prob, is_training=is_training)
-
-        for i in range(options.hidden_layers):
-
-          with tf.variable_scope('layer_{}'.format(i)):
-            with tf.variable_scope('branch_0'):
-              branch_0 = slim.conv2d(
-                  net,
-                  64, [3, 3],
-                  stride=2,
-                  padding='VALID',
-                  scope='conv2d_3x3')
-              branch_0 = slim.dropout(
-                  branch_0,
-                  options.hidden_dropout_keep_prob,
-                  is_training=is_training)
-            with tf.variable_scope('branch_1'):
-              branch_1 = slim.max_pool2d(
-                  net, [3, 3], stride=2, padding='VALID', scope='maxpool_3x3')
-            net = tf.concat([branch_0, branch_1], axis=-1)
-            tf.logging.info(net)
-
-        #for i in range(options.hidden_layers):
-
-        #  with tf.variable_scope('layer_{}'.format(i)):
-        #    with tf.variable_scope('reduce'):
-        #      net = slim.conv2d(
-        #          net, num_outputs=128, kernel_size=[1, 1], padding='SAME')
-        #      net = slim.dropout(
-        #          net,
-        #          options.hidden_dropout_keep_prob,
-        #          is_training=is_training)
-
-        #    with tf.variable_scope('branch_0'):
-        #      branch_0 = slim.conv2d(
-        #          net,
-        #          128, [3, 3],
-        #          stride=2,
-        #          padding='VALID',
-        #          scope='conv2d_3x3')
-        #      branch_0 = slim.dropout(
-        #          branch_0,
-        #          options.hidden_dropout_keep_prob,
-        #          is_training=is_training)
-
-        #    with tf.variable_scope('branch_1'):
-        #      branch_1 = slim.conv2d(net, 64, [1, 1], scope='conv2d_1x1')
-        #      branch_1 = slim.dropout(
-        #          branch_1,
-        #          options.hidden_dropout_keep_prob,
-        #          is_training=is_training)
-        #      branch_1 = slim.conv2d(
-        #          branch_1,
-        #          128, [3, 3],
-        #          stride=2,
-        #          padding='VALID',
-        #          scope='conv2d_3x3')
-        #      branch_1 = slim.dropout(
-        #          branch_1,
-        #          options.hidden_dropout_keep_prob,
-        #          is_training=is_training)
-
-        #    with tf.variable_scope('branch_2'):
-        #      branch_2 = slim.max_pool2d(
-        #          net, [3, 3], stride=2, padding='VALID', scope='maxpool_3x3')
-
-        #    net = tf.concat([branch_0, branch_1, branch_2], axis=-1)
-        #    tf.logging.info(net)
-      proposal_feature = tf.squeeze(net, [1, 2])
-
-    tf.logging.info('proposal_feture: %s', proposal_feature)
-    return proposal_feature
-
   def _calc_spp_proposal_feature(self, image_feature_cropped):
     """Calculates proposal feature using spp.
 
@@ -270,6 +172,7 @@ class Model(ModelBase):
         float tensor.
 
     Returns:
+      spp_feature: A [batch, spp_feature_dims] float tensor.
       proposal_feature: A [batch, proposal_feature_dims] float tensor.
     """
     options = self._model_proto
@@ -277,81 +180,25 @@ class Model(ModelBase):
 
     net = image_feature_cropped
 
-    #with slim.arg_scope(
-    #    build_hyperparams(options.conv_hyperparams, is_training)):
-    #  for i in range(options.conv_layers):
-    #    net_add = slim.conv2d(
-    #        net,
-    #        options.conv_units, [1, 1],
-    #        padding='SAME',
-    #        scope='conv/fc_{}'.format(i + 1))
-    #    net = tf.concat([net, net_add], axis=-1)
-    #    net = slim.dropout(
-    #        net, options.conv_dropout_keep_prob, is_training=is_training)
-
-    net = self._calc_spp_feature(
+    spp_feature = net = self._calc_spp_feature(
         net,
         spp_bins=[lv for lv in options.spp_bins],
         max_pool=options.spp_max_pool)
 
-    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      for i in range(options.hidden_layers):
+    for i in range(options.hidden_layers):
+      with slim.arg_scope(
+          build_hyperparams(options.fc_hyperparams, is_training)):
         net = slim.fully_connected(
             net,
             num_outputs=options.hidden_units,
             scope='hidden/fc_{}'.format(i + 1))
         net = slim.dropout(
             net, options.hidden_dropout_keep_prob, is_training=is_training)
-    return net
-
-  def _calc_vgg_proposal_feature(self, image_feature_cropped):
-    """Calculates proposal feature using vgg fc layers.
-
-    Args:
-      image_feature_cropped: A [batch, crop_size, crop_size, feature_dims]
-        float tensor.
-
-    Returns:
-      proposal_feature: A [batch, proposal_feature_dims] float tensor.
-    """
-    options = self._model_proto
-    is_training = self._is_training
-
-    # SPP.
-    bins = 7
-    batch, height, width, _ = utils.get_tensor_shape(image_feature_cropped)
-    if height % bins or width % bins:
-      raise ValueError('Reminder should be ZERO.')
-
-    pool_h, pool_w = height // bins, width // bins
-    stride_h, stride_w = height // bins, width // bins
-    net = tf.nn.max_pool(
-        image_feature_cropped,
-        ksize=[1, pool_h, pool_w, 1],
-        strides=[1, stride_h, stride_w, 1],
-        padding='SAME')
-
-    with tf.variable_scope(options.cnn.scope, reuse=True):
-      with tf.variable_scope(options.cnn.name, reuse=True):
-
-        net = slim.conv2d(net, 4096, [7, 7], padding='VALID', scope='fc6')
-        net = slim.dropout(
-            net,
-            options.cnn.dropout_keep_prob,
-            is_training=is_training and options.cnn.trainable,
-            scope='dropout6')
-        net = slim.conv2d(net, 4096, [1, 1], scope='fc7')
-        net = slim.dropout(
-            net,
-            options.hidden_dropout_keep_prob,
-            is_training=is_training,
-            scope='dropout7')
-        net = tf.squeeze(net, [1, 2], name='fc8/squeezed')
-
-    return net
+    return spp_feature, net
 
   def _build_midn_network(self,
                           num_proposals,
+                          spp_feature,
                           proposal_feature,
                           num_classes=20,
                           attention_normalizer=1.0,
@@ -363,73 +210,60 @@ class Model(ModelBase):
 
     Args:
       num_proposals: A [batch] int tensor.
-      proposal_feature: A [batch, max_num_proposals, feature_dims] 
+      spp_feature: A [batch, max_num_proposals, spp_feature_dims] 
+        float tensor.
+      proposal_feature: A [batch, max_num_proposals, proposal_feature_dims] 
         float tensor.
       num_classes: Number of classes.
 
     Returns:
-      proposal_scores: A [batch, max_num_proposals, num_classes] float tensor.
+      logits: A [batch, num_classes] float tensor.
+      proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
     """
     with tf.name_scope('multi_instance_detection'):
 
-      _, max_num_proposals, _ = utils.get_tensor_shape(proposal_feature)
-
-      # branch1/branch2 shape = [batch, max_num_proposals, num_classes.]
-      branch1 = slim.fully_connected(
-          proposal_feature,
-          num_outputs=num_classes,
-          activation_fn=None,
-          scope='midn/branch1')
-      branch2 = slim.fully_connected(
-          proposal_feature,
-          num_outputs=num_classes,
-          activation_fn=None,
-          scope='midn/branch2')
-      branch1 = branch1 / attention_normalizer
-      branch2 = branch2 / attention_normalizer
-
-      if attention_tanh:
-        branch1 = attention_scale_factor * tf.nn.tanh(branch1)
-        branch2 = attention_scale_factor * tf.nn.tanh(branch2)
-
-      proba_c_given_r = tf.nn.softmax(branch1, axis=2)
-
+      batch, max_num_proposals, _ = utils.get_tensor_shape(spp_feature)
       mask = tf.sequence_mask(
           num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
       mask = tf.expand_dims(mask, axis=-1)
-      proba_r_given_c = utils.masked_softmax(data=branch2, mask=mask, dim=1)
 
-      proposal_scores = tf.multiply(proba_c_given_r, proba_r_given_c)
+      spp_feature = tf.multiply(mask, spp_feature)
+      proposal_feature = tf.multiply(mask, proposal_feature)
 
-      # branch1 = slim.fully_connected(
-      #     proposal_feature,
-      #     num_outputs=num_classes,
-      #     activation_fn=None,
-      #     scope='midn/branch1')
-      # branch1 = branch1 / np.sqrt(num_classes)
-      # branch2 = slim.fully_connected(
-      #     proposal_feature,
-      #     num_outputs=num_classes,
-      #     activation_fn=None,
-      #     scope='midn/branch2')
-      # branch2 = branch2 / np.sqrt(max_num_proposals)
+      # Calculates the score of proposal `r` given class `c`.
+      #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
 
-      # proba_c_given_r = tf.nn.softmax(branch1, axis=2)
+      logits_r_given_c = slim.fully_connected(
+          proposal_feature,
+          num_outputs=num_classes,
+          activation_fn=None,
+          scope='midn/proba_r_given_c')
+      logits_r_given_c = tf.multiply(mask,
+                                     logits_r_given_c / attention_normalizer)
+      proba_r_given_c = utils.masked_softmax(
+          data=logits_r_given_c, mask=mask, dim=1)
 
-      # #proba_r_given_c = tf.nn.softmax(branch2, axis=1)
+      # Calculates the score of class `c` given proposal `r`.
+      #   proba_c_given_r shape = [batch, max_num_proposals, num_classes].
 
-      # mask = tf.sequence_mask(
-      #     num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-      # mask = tf.expand_dims(mask, axis=-1)
-      # proba_r_given_c = utils.masked_softmax(data=branch2, mask=mask, dim=1)
+      logits_c_given_r = slim.fully_connected(
+          spp_feature,
+          num_outputs=num_classes,
+          activation_fn=None,
+          scope='midn/proba_c_given_r')
+      logits_c_given_r = tf.multiply(mask,
+                                     logits_c_given_r / attention_normalizer)
 
-      # proposal_scores = tf.multiply(proba_c_given_r, proba_r_given_c)
+      # Aggregates the logits.
 
-    tf.summary.histogram('midn/branch1', branch1)
-    tf.summary.histogram('midn/branch2', branch2)
-    tf.summary.histogram('midn/proposal_scores', proposal_scores)
+      logits = tf.multiply(logits_c_given_r, proba_r_given_c)
+      logits = tf.reduce_sum(logits, axis=1)
 
-    return proposal_scores
+    tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
+    tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
+    tf.summary.histogram('midn/logits', logits)
+
+    return logits, proba_r_given_c
 
   def _post_process(self,
                     boxes,
@@ -502,7 +336,7 @@ class Model(ModelBase):
     # Use the CNN to extract feature.
     #   image_feature shape=[batch, feature_height, feature_width, feature_dims]
 
-    image_feature = model_utils.calc_cnn_feature(
+    image_feature = model_utils.dilated_vgg16_conv(
         image, options.cnn, is_training=is_training)
 
     # Crop image feature from the CNN output.
@@ -524,25 +358,32 @@ class Model(ModelBase):
     # Get the multi-resolutional feature.
     #   proposal_feature shape=[batch, max_num_proposals, hidden_units].
 
-    if options.feature_extractor == mil_model_pb2.MILModel.SPP:
-      proposal_feature = self._calc_spp_proposal_feature(image_feature_cropped)
-    elif options.feature_extractor == mil_model_pb2.MILModel.CONV:
-      proposal_feature = self._calc_conv_proposal_feature(image_feature_cropped)
-    elif options.feature_extractor == mil_model_pb2.MILModel.VGG:
-      proposal_feature = self._calc_vgg_proposal_feature(image_feature_cropped)
+    if options.feature_extractor == oicr_dilated_model_pb2.OICRDilatedModel.SPP:
+      spp_feature, proposal_feature = self._calc_spp_proposal_feature(
+          image_feature_cropped)
+    elif options.feature_extractor == oicr_dilated_model_pb2.OICRDilatedModel.VGG:
+      spp_feature = proposal_feature = slim.dropout(
+          model_utils.vgg16_fc(
+              image_feature_cropped, options.cnn, is_training=is_training),
+          options.hidden_dropout_keep_prob,
+          is_training=is_training)
     else:
       raise ValueError('Invalid feature extractor')
 
+    spp_feature = tf.reshape(spp_feature, [batch, max_num_proposals, -1])
     proposal_feature = tf.reshape(proposal_feature,
                                   [batch, max_num_proposals, -1])
 
+    tf.summary.histogram('midn/proposal_feature', proposal_feature)
+
     # Build the MIDN network.
-    #   midn_proposal_scores shape = [batch, max_num_proposals, num_classes].
+    #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
     #   See `Multiple Instance Detection Network with OICR`.
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      midn_proposal_scores = self._build_midn_network(
+      midn_logits, proba_r_given_c = self._build_midn_network(
           num_proposals,
+          spp_feature if options.use_spp_to_calc_logits else proposal_feature,
           proposal_feature,
           num_classes=self._num_classes,
           attention_normalizer=options.attention_normalizer,
@@ -567,10 +408,17 @@ class Model(ModelBase):
     predictions = {
         DetectionResultFields.num_proposals: num_proposals,
         DetectionResultFields.proposal_boxes: proposals,
-        OICRPredictions.midn_proposal_scores: midn_proposal_scores,
+        OICRPredictions.midn_proba_r_given_c: proba_r_given_c,
+        OICRPredictions.midn_logits: midn_logits,
     }
 
     # Post process to get the final detections.
+    labels = self._extract_class_label(
+        class_texts=examples[InputDataFields.caption_strings],
+        vocabulary_list=self._vocabulary_list)
+
+    midn_proposal_scores = tf.multiply(proba_r_given_c,
+                                       tf.expand_dims(labels, axis=1))
 
     (predictions[DetectionResultFields.num_detections + '_at_{}'.format(0)],
      predictions[DetectionResultFields.detection_boxes + '_at_{}'.format(0)],
@@ -595,7 +443,8 @@ class Model(ModelBase):
                        tf.nn.softmax(oicr_proposal_scores_at_i,
                                      axis=-1)[:, :, 1:])
 
-    self._visl_proposals(image, num_proposals, proposals, name='proposals')
+    self._visl_proposals(
+        image, num_proposals, proposals, name='proposals', top_k=2000)
     for i in range(1 + options.oicr_iterations):
       num_detections, detection_boxes, detection_scores, detection_classes = (
           predictions[DetectionResultFields.num_detections +
@@ -761,19 +610,10 @@ class Model(ModelBase):
 
       # Loss of the multi-instance detection network.
 
-      # midn_logits = tf.reduce_sum(
-      #     predictions[OICRPredictions.midn_proposal_scores], axis=1)
-      # losses = tf.nn.sigmoid_cross_entropy_with_logits(
-      #     labels=labels, logits=midn_logits)
-      # loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(losses)
-
-      midn_proba = tf.reduce_sum(
-          predictions[OICRPredictions.midn_proposal_scores], axis=1)
-      margin = 0.05
-      midn_proba = tf.minimum(1 - margin, tf.maximum(margin, midn_proba))
-      losses = tf.add(labels * tf.log(midn_proba),
-                      (1.0 - labels) * tf.log(1.0 - midn_proba))
-      loss_dict['midn_cross_entropy_loss'] = -tf.reduce_mean(losses)
+      midn_logits = predictions[OICRPredictions.midn_logits]
+      losses = tf.nn.sigmoid_cross_entropy_with_logits(
+          labels=labels, logits=midn_logits)
+      loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(losses)
 
       # Losses of the online instance classifier refinement network.
 
@@ -782,7 +622,7 @@ class Model(ModelBase):
       (num_proposals, proposals,
        proposal_scores_0) = (predictions[DetectionResultFields.num_proposals],
                              predictions[DetectionResultFields.proposal_boxes],
-                             predictions[OICRPredictions.midn_proposal_scores])
+                             predictions[OICRPredictions.midn_proba_r_given_c])
 
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_scores_0)
       proposal_scores_0 = tf.concat(

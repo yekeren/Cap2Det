@@ -1,0 +1,35 @@
+syntax = "proto2";
+
+message CNN {
+  // Name of the CNN network.
+  optional string name = 1 [default = 'vgg_16'];
+
+  enum Preprocess {
+    VGG = 1;
+    INCEPTION = 2;
+  }
+
+  // Preprocess method.
+  optional Preprocess preprocess_method = 2 [default = VGG];
+
+  // Variable scope.
+  optional string scope = 3 [default = "cnn"];
+
+  // Weight decay of the CNN model.
+  optional float weight_decay = 4 [default = 0.0];
+
+  // Feature map to use.
+  optional string output_name= 5 [default = 'vgg_16/conv5/conv5_3'];
+
+  // If true, also train the CNN network.
+  optional bool trainable = 6 [default = false];
+
+  // Dropout keep probability of the CNN network.
+  optional float dropout_keep_prob = 7 [default = 1.0];
+
+  // Path to the pre-trained CNN checkpoint.
+  optional string checkpoint_path = 8;
+
+  optional int32 dilate_rate = 9 [default = 1];
+  optional bool remove_pool4 = 10 [default = true];
+}

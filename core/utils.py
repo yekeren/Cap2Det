@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 
 _BIG_NUMBER = 1e10
+_SMALL_NUMBER = 1e-10
 
 
 def deprecated(func):
@@ -97,6 +98,77 @@ def masked_minimum(data, mask, dim=1):
   return masked_minimums
 
 
+def masked_sum(data, mask, dim=1):
+  """Computes the axis wise sum over chosen elements.
+
+  Args:
+    data: 2-D float `Tensor` of size [n, m].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the sum.
+
+  Returns:
+    masked_sum: N-D `Tensor`.
+      The summed dimension is of size 1 after the operation.
+  """
+  return tf.reduce_sum(tf.multiply(data, mask), dim, keepdims=True)
+
+
+def masked_avg(data, mask, dim=1):
+  """Computes the axis wise avg over chosen elements.
+
+  Args:
+    data: 2-D float `Tensor` of size [n, m].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the avg.
+
+  Returns:
+    masked_avg: N-D `Tensor`.
+      The averaged dimension is of size 1 after the operation.
+  """
+  masked_sums = masked_sum(data, mask, dim)
+  masked_avgs = tf.div(
+      masked_sums,
+      tf.maximum(_SMALL_NUMBER, tf.reduce_sum(mask, dim, keepdims=True)))
+  return masked_avgs
+
+
+def masked_sum_nd(data, mask, dim=1):
+  """Computes the axis wise sum over chosen elements.
+
+  Args:
+    data: 3-D float `Tensor` of size [n, m, d].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the sum.
+
+  Returns:
+    masked_sum: N-D `Tensor`.
+      The summed dimension is of size 1 after the operation.
+  """
+  return tf.reduce_sum(
+      tf.multiply(data, tf.expand_dims(mask, axis=-1)), dim, keepdims=True)
+
+
+def masked_avg_nd(data, mask, dim=1):
+  """Computes the axis wise avg over chosen elements.
+
+  Args:
+    data: 2-D float `Tensor` of size [n, m].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the avg.
+
+  Returns:
+    masked_avg: N-D `Tensor`.
+      The averaged dimension is of size 1 after the operation.
+  """
+  masked_sums = masked_sum_nd(data, mask, dim)
+  masked_avgs = tf.div(
+      masked_sums,
+      tf.maximum(
+          _SMALL_NUMBER,
+          tf.expand_dims(tf.reduce_sum(mask, dim, keepdims=True), axis=-1)))
+  return masked_avgs
+
+
 def masked_softmax(data, mask, dim=1):
   """Computes the axis wise softmax over chosen elements.
 
@@ -110,3 +182,18 @@ def masked_softmax(data, mask, dim=1):
   """
   mask = _BIG_NUMBER * (1.0 - mask)
   return tf.nn.softmax(data - mask, axis=dim)
+
+
+def masked_argmax(data, mask, dim=1):
+  """Computes the axis wise argmax over chosen elements.
+
+  Args:
+    data: 2-D float `Tensor` of size [n, m].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the argmax.
+
+  Returns:
+    masked_argmax: N-D `Tensor`.
+  """
+  axis_minimums = tf.reduce_min(data, dim, keepdims=True)
+  return tf.argmax(tf.multiply(data - axis_minimums, mask), dim)

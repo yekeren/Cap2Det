@@ -39,6 +39,45 @@ def random_crop(image, random_crop_min_scale):
   return image
 
 
+def preprocess_func(image, flip_left_right):
+  """Preprocesses an image.
+
+  Args:
+    image: A [height, width, 3] uint8 tensor.
+    flip_left_right: A boolean scalar tensor.
+  """
+  image = tf.cond(
+      flip_left_right,
+      true_fn=lambda: tf.image.flip_left_right(image),
+      false_fn=lambda: image)
+  return image
+
+
+def preprocess_image_v2(image, options):
+  """Get preprocess function based on options.
+
+  Args:
+    image: A [height, width, 3] uint8 tensor.
+    options: An instance of PreprocessOptions.
+
+  Returns:
+    preprocessed_image: A [height, width, 3] uint8 tensor.
+
+  Raises:
+    ValueError: If the options is invalid.
+  """
+  if not isinstance(options, preprocess_pb2.Preprocess):
+    raise ValueError('Options has to be an instance of Preprocess.')
+
+  flip_left_right = tf.less(
+      tf.random_uniform(shape=[]), options.random_flip_left_right_prob)
+  operations = {'flip_left_right': flip_left_right}
+
+  preprocessed_image = preprocess_func(image, flip_left_right)
+
+  return preprocessed_image, operations
+
+
 def preprocess_image(image, options):
   """Preprocesses an image.
 
@@ -173,4 +212,3 @@ def parse_texts(tokens, offsets, lengths):
         ])
 
   return num_texts, text_strings, text_lengths
-

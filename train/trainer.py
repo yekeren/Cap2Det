@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import tensorflow as tf
 
 from reader import reader
@@ -14,7 +15,7 @@ from core import training_utils
 from eval_summary_saver_hook import EvalSummarySaverHook
 
 
-def _create_model_fn(pipeline_proto):
+def _create_model_fn(pipeline_proto, is_chief=True):
   """Creates a callable that build the model.
 
   Args:
@@ -63,19 +64,72 @@ def _create_model_fn(pipeline_proto):
 
     train_op = None
     eval_metric_ops = None
+    training_hooks = []
 
     if tf.estimator.ModeKeys.TRAIN == mode:
 
-      # The train_op is required for mode `TRAIN`.
+      train_config = pipeline_proto.train_config
+
+      # Create the optimizer.
+
+      learning_rate = train_config.learning_rate
+      global_step = tf.train.get_or_create_global_step()
+
+      if train_config.HasField('learning_rate_decay'):
+        learning_rate = tf.train.exponential_decay(
+            learning_rate,
+            global_step,
+            train_config.learning_rate_decay.decay_steps,
+            train_config.learning_rate_decay.decay_rate,
+            staircase=train_config.learning_rate_decay.staircase)
+      tf.summary.scalar('loss/learning_rate', learning_rate)
 
       optimizer = training_utils.build_optimizer(
-          pipeline_proto.train_config.optimizer,
-          learning_rate=pipeline_proto.train_config.learning_rate)
+          train_config.optimizer, learning_rate=learning_rate)
+
+      # Setup the replicas_hook for the SyncReplicasOptimizer.
+
+      if train_config.sync_replicas:
+        optimizer = tf.train.SyncReplicasOptimizer(
+            optimizer, replicas_to_aggregate=4)
+        sync_replicas_hook = optimizer.make_session_run_hook(is_chief)
+        training_hooks.append(sync_replicas_hook)
+
+      # Enable MovingAverageOptimizer if specified.
+
+      if train_config.HasField('moving_average_decay'):
+        optimizer = tf.contrib.opt.MovingAverageOptimizer(
+            optimizer, average_decay=train_config.moving_average_decay)
+
+      # Apply gradient multipliers.
+
+      gradient_multipliers = {}
+      for var in variables_to_train:
+        for multiplier in train_config.gradient_multiplier:
+          if var.op.name.startswith(multiplier.scope):
+            if var.op.name in gradient_multipliers:
+              tf.logging.warn('Override gradient multiplier: %s', var.op.name)
+            gradient_multipliers[var.op.name] = multiplier.multiplier
+            tf.logging.info('Set gradient multiplier for %s', var.op.name)
+      tf.logging.info('Apply gradient multipliers: \n%s',
+                      json.dumps(gradient_multipliers, indent=2))
+
+      def transform_grads_fn(grads):
+        return tf.contrib.training.multiply_gradients(grads,
+                                                      gradient_multipliers)
+
+      # The train_op is required for mode `TRAIN`.
+
       train_op = tf.contrib.training.create_train_op(
           total_loss,
           optimizer,
           variables_to_train=variables_to_train,
+          transform_grads_fn=transform_grads_fn,
           summarize_gradients=True)
+
+      if train_config.HasField('moving_average_decay'):
+        scaffold = tf.train.Scaffold(
+            saver=optimizer.swapping_saver(), copy_from_scaffold=scaffold)
 
     elif tf.estimator.ModeKeys.EVAL == mode:
 
@@ -95,6 +149,7 @@ def _create_model_fn(pipeline_proto):
         predictions=predictions,
         loss=total_loss,
         train_op=train_op,
+        training_hooks=training_hooks,
         eval_metric_ops=eval_metric_ops,
         scaffold=scaffold)
 
@@ -126,9 +181,10 @@ def create_train_and_evaluate(pipeline_proto):
   eval_config = pipeline_proto.eval_config
   eval_input_fn = reader.get_input_fn(pipeline_proto.eval_reader)
 
-  eval_hooks = [
-      EvalSummarySaverHook(output_dir=pipeline_proto.model_dir + '/eval')
-  ]
+  # eval_hooks = [
+  #     EvalSummarySaverHook(output_dir=pipeline_proto.model_dir + '/eval')
+  # ]
+  eval_hooks = None
   eval_spec = tf.estimator.EvalSpec(
       input_fn=eval_input_fn,
       steps=eval_config.steps,
@@ -144,14 +200,14 @@ def create_train_and_evaluate(pipeline_proto):
 
   # Create estimator.
 
-  model_fn = _create_model_fn(pipeline_proto)
-
   run_config = tf.estimator.RunConfig(
       save_summary_steps=train_config.save_summary_steps,
       save_checkpoints_steps=train_config.save_checkpoints_steps,
       session_config=session_config,
       keep_checkpoint_max=train_config.keep_checkpoint_max,
       log_step_count_steps=train_config.log_step_count_steps)
+
+  model_fn = _create_model_fn(pipeline_proto, is_chief=run_config.is_chief)
 
   estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=pipeline_proto.model_dir, config=run_config)

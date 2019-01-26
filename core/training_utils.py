@@ -33,6 +33,14 @@ def build_optimizer(options, learning_rate=0.1):
     return tf.train.GradientDescentOptimizer(
         learning_rate, use_locking=options.use_locking)
 
+  if 'momentum' == optimizer:
+    options = options.momentum
+    return tf.train.MomentumOptimizer(
+        learning_rate,
+        momentum=options.momentum,
+        use_locking=options.use_locking,
+        use_nesterov=options.use_nesterov)
+
   if 'adagrad' == optimizer:
     options = options.adagrad
     return tf.train.AdagradOptimizer(
@@ -193,6 +201,10 @@ def _build_initializer(initializer):
         factor=initializer.variance_scaling_initializer.factor,
         mode=mode,
         uniform=initializer.variance_scaling_initializer.uniform)
+  if initializer_oneof == 'glorot_normal_initializer':
+    return tf.glorot_normal_initializer()
+  if initializer_oneof == 'glorot_uniform_initializer':
+    return tf.glorot_uniform_initializer()
 
   raise ValueError('Unknown initializer function: {}'.format(initializer_oneof))
 

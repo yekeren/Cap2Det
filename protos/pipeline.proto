@@ -63,8 +63,29 @@ message TrainConfig {
 //  // If true, use moving average of the variables.
 //  optional bool moving_average = 15 [ default = false ];
 //
-//  // Gradient multipliers.
-//  repeated GradientMultiplier gradient_multiplier = 16;
+
+  // Learning rate decay strategem.
+  optional LearningRateDecay learning_rate_decay = 11;
+
+  // If true, sync replicas using SyncReplicasOptimizer.
+  optional bool sync_replicas = 12 [default = false];
+
+  // If set, enable to use moving average.
+  optional float moving_average_decay = 13 [default = 0.999];
+
+  // Gradient multipliers.
+  repeated GradientMultiplier gradient_multiplier = 16;
+}
+
+message LearningRateDecay {
+  // Decay the learning rate every `decay_steps`.
+  optional int32 decay_steps = 1 [default = 999999999];
+
+  // Decay rate.
+  optional float decay_rate = 2 [default = 1.0];
+
+  // If true, decay the learning rate at discrete intervals.
+  optional bool staircase = 3 [default = true];
 }
 
 message GradientMultiplier {

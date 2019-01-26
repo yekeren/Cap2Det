@@ -1,0 +1,78 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+import "protos/hyperparams.proto";
+import "protos/cnn.proto";
+
+
+message MILModel {
+  extend Model {
+    optional MILModel ext = 1014;
+  }
+
+  // Name of the preprocess method, either `inception` or `vgg`.
+  optional string preprocess_method = 1 [default = "inception"];
+
+  // Configuation of the cnn.
+  optional CNN cnn = 2;
+
+  // Feature crop size for the SPP layer.
+  optional int32 feature_crop_size = 3 [default = 36];
+
+  // Configures for SPP feature.
+  // Number of bins at each spp level.
+  repeated int32 spp_bins = 4;
+
+  // Number of hidden FC layers.
+  optional int32 hidden_layers = 5 [default = 0];
+
+  // Number of hidden units of the FC layers.
+  optional int32 hidden_units = 6 [default = 128];
+
+  // Dropout keep probaility.
+  optional float hidden_dropout_keep_prob = 7 [default = 1.0];
+
+  // Configures for CONV feature.
+
+  // Hyperparams of all the FC layers.
+  optional Hyperparams fc_hyperparams = 8;
+
+  // Hyperparams of all the FC layers.
+  optional Hyperparams conv_hyperparams = 9;
+
+  // Number of hidden FC layers.
+  optional int32 conv_layers = 15 [default = 0];
+
+  // Number of hidden units of the FC layers.
+  optional int32 conv_units = 16 [default = 128];
+
+  // Dropout keep probaility.
+  optional float conv_dropout_keep_prob = 17 [default = 1.0];
+
+  // Number of iteratios of the online instance classifier refinement.
+  optional int32 oicr_iterations = 10 [default = 2];
+
+  // IoU threshold of the iocr process.
+  optional float oicr_iou_threshold = 11 [default = 0.5];
+
+  // Path to the vocabulary file.
+  optional string vocabulary_file = 12;
+
+  // Feature extractors.
+  enum FeatureExtractor {
+    SPP = 1;
+    VGG = 2;
+    CONV = 3;
+  }
+
+  // Feature extractor.
+  optional FeatureExtractor feature_extractor = 13 [default = SPP];
+
+  optional bool spp_max_pool = 14 [default = true];
+
+  optional float attention_normalizer = 25 [default = 1.0];
+
+  optional bool attention_tanh = 26 [default = false];
+
+  optional float attention_scale_factor = 27 [default = 5.0];
+}

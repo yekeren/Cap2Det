@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 from nets import nets_factory
+from nets import vgg
 
 from core import utils
 from core import imgproc
@@ -11,7 +12,6 @@ from core import plotlib
 from protos import cnn_pb2
 
 _SMALL_NUMBER = 1e-10
-
 
 slim = tf.contrib.slim
 
@@ -34,10 +34,100 @@ def preprocess_image(image, method='inception'):
     return image * 2.0 / 255.0 - 1.0
 
   elif "vgg" == method:
-    rgb_mean = [123.68, 116.779, 103.939]
+    rgb_mean = [123.68, 116.78, 103.94]
     return image - tf.reshape(rgb_mean, [1, 1, 1, -1])
 
   raise ValueError('Invalid preprocess method {.}'.format(method))
+
+
+def vgg16_fc(image_feature, options, reuse=False, is_training=False):
+  """Calculates vgg fc features.
+
+  Args:
+    feature_map: A [batch, feature_map_size, feature_map_size, feature_map_dims]
+      float tensor.
+
+  Returns:
+    feature: A [batch, feature_dims] float tensor.
+  """
+  if not isinstance(options, cnn_pb2.CNN):
+    raise ValueError('Invalid options.')
+
+  net = image_feature
+
+  with slim.arg_scope(vgg.vgg_arg_scope()):
+    with tf.variable_scope(options.scope, reuse=reuse):
+      with tf.variable_scope('vgg_16'):
+
+        net = slim.conv2d(net, 4096, [7, 7], padding='VALID', scope='fc6')
+        net = slim.dropout(
+            net,
+            options.dropout_keep_prob,
+            is_training=is_training and options.trainable,
+            scope='dropout6')
+        net = slim.conv2d(net, 4096, [1, 1], scope='fc7')
+        net = tf.squeeze(net, [1, 2], name='fc8/squeezed')
+
+  # Initialize from pre-trained checkpoint.
+
+  if options.checkpoint_path:
+    tf.train.init_from_checkpoint(
+        options.checkpoint_path, assignment_map={"/": options.scope + "/"})
+  return net
+
+
+def dilated_vgg16_conv(image, options, reuse=False, is_training=False):
+  """Calculates dilated vgg16 feature based on options.
+
+  Args:
+    image: A [batch, height, width, channels] float tensor.
+    options: A cnn_pb2.CNN instance.
+    reuse: If True, reuse variables in the variable scope.
+    is_training: If True, build the training graph.
+
+  Returns:
+    image_feature: A [batch, feature_height, feature_width, feature_dims] 
+      float tensor.
+  """
+  if not isinstance(options, cnn_pb2.CNN):
+    raise ValueError('Invalid options.')
+
+  image = preprocess_image(image, 'vgg')
+
+  with slim.arg_scope(vgg.vgg_arg_scope()):
+    with tf.variable_scope(options.scope, reuse=reuse):
+      with tf.variable_scope('vgg_16') as sc:
+        net = slim.repeat(image, 2, slim.conv2d, 64, [3, 3], scope='conv1')
+        net = slim.max_pool2d(net, [2, 2], scope='pool1')
+        net = slim.repeat(net, 2, slim.conv2d, 128, [3, 3], scope='conv2')
+        net = slim.max_pool2d(net, [2, 2], scope='pool2')
+        net = slim.repeat(net, 3, slim.conv2d, 256, [3, 3], scope='conv3')
+        net = slim.max_pool2d(net, [2, 2], scope='pool3')
+        net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv4')
+
+        # Change to use atrous conv after removing the `pool4`.
+
+        if not options.remove_pool4:
+          net = slim.max_pool2d(net, [2, 2], scope='pool4')
+
+        rate = options.dilate_rate
+        net = slim.repeat(
+            net,
+            3,
+            slim.conv2d,
+            512, [3, 3],
+            rate=options.dilate_rate,
+            padding='SAME',
+            scope='conv5')
+
+        tf.logging.info('Feature map size is %s.', net.get_shape())
+
+  # Initialize from pre-trained checkpoint.
+
+  if options.checkpoint_path:
+    tf.train.init_from_checkpoint(
+        options.checkpoint_path, assignment_map={"/": options.scope + "/"})
+  return net
 
 
 def calc_cnn_feature(image, options, reuse=False, is_training=False):
@@ -84,8 +174,7 @@ def calc_cnn_feature(image, options, reuse=False, is_training=False):
 
   if options.checkpoint_path:
     tf.train.init_from_checkpoint(
-        options.checkpoint_path,
-        assignment_map={"/": options.scope + "/"})
+        options.checkpoint_path, assignment_map={"/": options.scope + "/"})
   return image_feature
 
 
@@ -309,7 +398,8 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
       # Leave a border for the image border.
       ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
       ymin, xmin = tf.maximum(ymin, 3), tf.maximum(xmin, 3)
-      ymax, xmax = tf.minimum(ymax, tf.to_int64(n - 3)), tf.minimum(xmax, tf.to_int64(m - 3))
+      ymax, xmax = tf.minimum(ymax, tf.to_int64(n - 3)), tf.minimum(
+          xmax, tf.to_int64(m - 3))
 
       box = tf.stack([ymin, xmin, ymax, xmax], axis=-1)
       box_exp = _get_expanded_box(
@@ -507,6 +597,7 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
 
   raise ValueError('Invalid func_name {}'.format(func_name))
 
+
 def get_top_k_boxes_and_scores(boxes, box_scores, box_labels=None, k=1):
   """Gets the top-k boxes and scores.
 
@@ -523,10 +614,10 @@ def get_top_k_boxes_and_scores(boxes, box_scores, box_labels=None, k=1):
 
   top_k_scores, top_k_indices = tf.nn.top_k(box_scores, k)
   top_k_indices = tf.stack([
-      tf.tile(
-          tf.expand_dims(tf.range(batch, dtype=tf.int32), axis=-1), [1, k]),
+      tf.tile(tf.expand_dims(tf.range(batch, dtype=tf.int32), axis=-1), [1, k]),
       top_k_indices
-  ], axis=-1)
+  ],
+                           axis=-1)
   top_k_boxes = tf.gather_nd(boxes, top_k_indices)
   top_k_labels = None
   if box_labels is not None:

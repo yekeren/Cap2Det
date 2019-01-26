@@ -9,6 +9,14 @@ from models import cam_model
 from protos import cam_model_pb2
 from models import mil_model
 from protos import mil_model_pb2
+from models import oicr_model
+from protos import oicr_model_pb2
+from models import oicr_dilated_model
+from protos import oicr_dilated_model_pb2
+from models import multi_resol_model
+from protos import multi_resol_model_pb2
+from models import frcnn_model
+from protos import frcnn_model_pb2
 from models import voc_model
 from protos import voc_model_pb2
 
@@ -39,6 +47,24 @@ def build(options, is_training=False):
 
   if options.HasExtension(mil_model_pb2.MILModel.ext):
     return mil_model.Model(options.Extensions[mil_model_pb2.MILModel.ext],
+                           is_training)
+
+  if options.HasExtension(oicr_model_pb2.OICRModel.ext):
+    return oicr_model.Model(options.Extensions[oicr_model_pb2.OICRModel.ext],
+                            is_training)
+
+  if options.HasExtension(oicr_dilated_model_pb2.OICRDilatedModel.ext):
+    return oicr_dilated_model.Model(
+        options.Extensions[oicr_dilated_model_pb2.OICRDilatedModel.ext],
+        is_training)
+
+  if options.HasExtension(multi_resol_model_pb2.MultiResolModel.ext):
+    return multi_resol_model.Model(
+        options.Extensions[multi_resol_model_pb2.MultiResolModel.ext],
+        is_training)
+
+  if options.HasExtension(frcnn_model_pb2.FRCNNModel.ext):
+    return frcnn_model.Model(options.Extensions[frcnn_model_pb2.FRCNNModel.ext],
                            is_training)
 
   if options.HasExtension(voc_model_pb2.VOCModel.ext):

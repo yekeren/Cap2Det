@@ -78,6 +78,102 @@ class UtilsTest(tf.test.TestCase):
           })
       self.assertAllClose(result, [[2.0], [-1.0]])
 
+  def test_masked_sum(self):
+    tf.reset_default_graph()
+
+    data = tf.placeholder(tf.float32, shape=[None, None])
+    mask = tf.placeholder(tf.float32, shape=[None, None])
+    masked_sums = utils.masked_sum(data, mask)
+
+    with self.test_session() as sess:
+      result = sess.run(
+          masked_sums,
+          feed_dict={
+              data: [[1, 2, 3], [4, 5, 6]],
+              mask: [[1, 0, 1], [0, 1, 0]]
+          })
+      self.assertAllClose(result, [[4], [5]])
+
+      result = sess.run(
+          masked_sums,
+          feed_dict={
+              data: [[1, 2, 3], [4, 5, 6]],
+              mask: [[0, 1, 0], [1, 0, 1]]
+          })
+      self.assertAllClose(result, [[2], [10]])
+
+  def test_masked_avg(self):
+    tf.reset_default_graph()
+
+    data = tf.placeholder(tf.float32, shape=[None, None])
+    mask = tf.placeholder(tf.float32, shape=[None, None])
+    masked_avgs = utils.masked_avg(data, mask)
+
+    with self.test_session() as sess:
+      result = sess.run(
+          masked_avgs,
+          feed_dict={
+              data: [[1, 2, 3], [4, 5, 6]],
+              mask: [[1, 0, 1], [0, 1, 0]]
+          })
+      self.assertAllClose(result, [[2], [5]])
+
+      result = sess.run(
+          masked_avgs,
+          feed_dict={
+              data: [[1, 2, 3], [4, 5, 6]],
+              mask: [[0, 1, 0], [1, 0, 1]]
+          })
+      self.assertAllClose(result, [[2], [5]])
+
+      result = sess.run(
+          masked_avgs,
+          feed_dict={
+              data: [[1, 2, 3], [4, 5, 6]],
+              mask: [[0, 0, 0], [0, 0, 0]]
+          })
+      self.assertAllClose(result, [[0], [0]])
+
+  def test_masked_sum_nd(self):
+    tf.reset_default_graph()
+
+    data = tf.placeholder(tf.float32, shape=[None, None, None])
+    mask = tf.placeholder(tf.float32, shape=[None, None])
+    masked_sums = utils.masked_sum_nd(data, mask)
+
+    with self.test_session() as sess:
+      result = sess.run(
+          masked_sums,
+          feed_dict={
+              data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
+              mask: [[1, 0, 1], [0, 1, 0]]
+          })
+      self.assertAllClose(result, [[[6,  8]], [[9, 10]]])
+
+  def test_masked_avg_nd(self):
+    tf.reset_default_graph()
+
+    data = tf.placeholder(tf.float32, shape=[None, None, None])
+    mask = tf.placeholder(tf.float32, shape=[None, None])
+    masked_avgs = utils.masked_avg_nd(data, mask)
+
+    with self.test_session() as sess:
+      result = sess.run(
+          masked_avgs,
+          feed_dict={
+              data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
+              mask: [[1, 0, 1], [0, 1, 0]]
+          })
+      self.assertAllClose(result, [[[3,  4]], [[9, 10]]])
+
+      result = sess.run(
+          masked_avgs,
+          feed_dict={
+              data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
+              mask: [[0, 0, 0], [0, 0, 0]]
+          })
+      self.assertAllClose(result, [[[0,  0]], [[0, 0]]])
+
   def test_masked_softmax(self):
     tf.reset_default_graph()
 

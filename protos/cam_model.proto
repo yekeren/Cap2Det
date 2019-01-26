@@ -1,0 +1,58 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+import "protos/hyperparams.proto";
+
+
+message CAMModel {
+  extend Model {
+    optional CAMModel ext = 1006;
+  }
+
+  // Name of the preprocess method, either `inception` or `vgg`.
+  optional string preprocess_method = 1 [default = "inception"];
+
+  // Name of the CNN network.
+  optional string cnn_name = 2 [default = 'vgg_16'];
+
+  // Weight decay of the CNN model.
+  optional float cnn_weight_decay = 3 [default = 0.0];
+
+  // Feature map to use.
+  optional string cnn_output_name= 4 [default = 'Cnn/vgg_16/conv5/conv5_3'];
+
+  // If true, also train the CNN network.
+  optional bool cnn_trainable = 5 [default = false];
+
+  // Dropout keep probability of the CNN network.
+  optional float cnn_dropout_keep_prob = 6 [default = 1.0];
+
+  // Path to the pre-trained CNN checkpoint.
+  optional string cnn_checkpoint = 7;
+
+  // Hyperparams for image projection layer.
+  optional Hyperparams image_proj_hyperparams = 8;
+
+  // Kernel size of the projection layer.
+  optional int32 image_proj_kernel_size = 9 [default = 1];
+
+  // Path to the vocabulary file.
+  optional string vocabulary_file = 11;
+
+  // If true, use Global Maximum Pooling instead.
+  optional bool max_pool = 21 [default = false];
+
+  enum FeatureExtractor {
+    FRCNN = 1;
+    SSD = 2;
+  }
+
+  // Feature extractor.
+  optional FeatureExtractor feature_extractor = 31 [default = FRCNN];
+
+  // Number of input scales, default 1 means [1.0], 2 means [1.0, 0.5].
+  repeated float input_image_scale = 32;
+
+  // Names of the cnn output layers.
+  repeated string cnn_feature_name = 33;
+}

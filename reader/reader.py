@@ -9,6 +9,7 @@ from core.standard_fields import TFExampleDataFields
 from core.standard_fields import OperationNames
 from core import preprocess
 from core import utils
+from core import box_utils
 from core import builder as function_builder
 from protos import reader_pb2
 
@@ -60,11 +61,13 @@ def get_input_fn(options):
 
     image_id = parsed[TFExampleDataFields.image_id]
 
+    operations = None
     with tf.name_scope(OperationNames.decode_image):
       image = tf.image.decode_jpeg(
           parsed[TFExampleDataFields.image_encoded], channels=_IMAGE_CHANNELS)
       if options.HasField("preprocess_options"):
-        image = preprocess.preprocess_image(image, options.preprocess_options)
+        image, operations = preprocess.preprocess_image_v2(
+            image, options.preprocess_options)
 
       resize_fn = function_builder.build_image_resizer(options.image_resizer)
       image, image_shape = resize_fn(image)
@@ -88,7 +91,15 @@ def get_input_fn(options):
       bbox_decoder = tf.contrib.slim.tfexample_decoder.BoundingBox(
           prefix=TFExampleDataFields.proposal_box + '/')
       proposals = bbox_decoder.tensors_to_item(parsed)
+      if options.is_training and options.shuffle_proposals:
+        proposals = tf.random_shuffle(proposals)
       proposals = proposals[:options.max_num_proposals]
+
+      if operations is not None:
+        proposals = tf.cond(
+            operations['flip_left_right'],
+            true_fn=lambda: box_utils.flip_left_right(proposals),
+            false_fn=lambda: proposals)
 
     # Bounding box annotations.
 
@@ -99,6 +110,12 @@ def get_input_fn(options):
       text_decoder = tf.contrib.slim.tfexample_decoder.Tensor(
           TFExampleDataFields.object_text, default_value='')
       object_texts = text_decoder.tensors_to_item(parsed)
+
+      if operations is not None:
+        object_boxes = tf.cond(
+            operations['flip_left_right'],
+            true_fn=lambda: box_utils.flip_left_right(object_boxes),
+            false_fn=lambda: object_boxes)
 
     feature_dict = {
         InputDataFields.image: image,
@@ -119,14 +136,15 @@ def get_input_fn(options):
     image = examples[InputDataFields.image]
     batch, height, width, channels = utils.get_tensor_shape(image)
 
-    scale_h = tf.random_uniform([],
-                                minval=options.batch_resize_scale_lower,
-                                maxval=options.batch_resize_scale_upper,
-                                dtype=tf.float32)
-    scale_w = tf.random_uniform([],
-                                minval=options.batch_resize_scale_lower,
-                                maxval=options.batch_resize_scale_upper,
-                                dtype=tf.float32)
+    scale_h = scale_w = tf.random_uniform(
+        [],
+        minval=options.batch_resize_scale_lower,
+        maxval=options.batch_resize_scale_upper,
+        dtype=tf.float32)
+    #scale_w = tf.random_uniform([],
+    #                            minval=options.batch_resize_scale_lower,
+    #                            maxval=options.batch_resize_scale_upper,
+    #                            dtype=tf.float32)
     new_height = tf.to_int32(tf.round(scale_h * tf.to_float(height)))
     new_width = tf.to_int32(tf.round(scale_w * tf.to_float(width)))
 
@@ -149,10 +167,12 @@ def get_input_fn(options):
     dataset = dataset.map(
         map_func=_parse_fn, num_parallel_calls=options.map_num_parallel_calls)
 
+    height = width = None
+
     dataset = dataset.padded_batch(
         options.batch_size,
         padded_shapes={
-            InputDataFields.image: [None, None, _IMAGE_CHANNELS],
+            InputDataFields.image: [height, width, _IMAGE_CHANNELS],
             InputDataFields.image_id: [],
             InputDataFields.image_shape: [3],
             InputDataFields.num_captions: [],

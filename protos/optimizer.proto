@@ -6,6 +6,7 @@ message Optimizer {
     AdagradOptimizer adagrad = 2;
     AdamOptimizer adam = 3;
     RMSPropOptimizer rmsprop = 4;
+    MomentumOptimizer momentum = 5;
   }
 }
 
@@ -33,3 +34,8 @@ message RMSPropOptimizer {
   optional bool centered = 5 [default = false];
 }
 
+message MomentumOptimizer {
+  optional float momentum = 1 [ default = 0.0 ];
+  optional bool use_locking = 2 [default = false];
+  optional bool use_nesterov = 3 [default = false];
+}

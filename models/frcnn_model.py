@@ -81,7 +81,7 @@ class Model(ModelBase):
           boxes=proposals[:, :top_k, :],
           color=plotlib.RED,
           fontscale=1.0)
-    tf.summary.image(name, image, max_outputs=5)
+    tf.summary.image(name, image, max_outputs=10)
 
   def _visl_proposals_top_k(self,
                             image,
@@ -123,12 +123,11 @@ class Model(ModelBase):
           labels=top_k_labels,
           color=plotlib.RED,
           fontscale=1.0)
-    tf.summary.image(name, image, max_outputs=5)
+    tf.summary.image(name, image, max_outputs=10)
 
   def _build_midn_network(self,
                           num_proposals,
                           proposal_features,
-                          attention_target=None,
                           num_classes=20):
     """Builds the Multiple Instance Detection Network.
 
@@ -163,49 +162,26 @@ class Model(ModelBase):
       proba_r_given_c = utils.masked_softmax(
           data=logits_r_given_c, mask=mask, dim=1)
       proba_r_given_c = tf.multiply(mask, proba_r_given_c)
-
       tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
 
-      if attention_target == frcnn_model_pb2.FRCNNModel.LOGITS:
+      # Calculates the weighted logits:
+      #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
+      #   logits shape = [batch, num_classes].
 
-        # Calculates the weighted logits:
-        #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
-        #   logits shape = [batch, num_classes].
+      logits_c_given_r = slim.fully_connected(
+          proposal_features,
+          num_outputs=num_classes,
+          activation_fn=None,
+          scope='midn/proba_c_given_r')
+      proba_c_given_r = tf.nn.softmax(logits_c_given_r)
+      proba_c_given_r = tf.multiply(mask, proba_c_given_r)
+      tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
 
-        logits_c_given_r = slim.fully_connected(
-            proposal_features,
-            num_outputs=num_classes,
-            activation_fn=None,
-            scope='midn/proba_c_given_r')
-        tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
+      # Aggregates the logits.
 
-        # Aggregates the logits.
-
-        logits = tf.multiply(logits_c_given_r, proba_r_given_c)
-        logits = tf.reduce_sum(logits, axis=1)
-
-      elif attention_target == frcnn_model_pb2.FRCNNModel.FEATURES:
-
-        # Calculates the weighted features:
-        #   feature_aggregated shape = [batch, num_classes, feature_dims].
-
-        feature_aggregated = tf.multiply(
-            tf.expand_dims(proposal_features, axis=2),
-            tf.expand_dims(proba_r_given_c, axis=3))
-        feature_aggregated = tf.reduce_sum(feature_aggregated, axis=1)
-        tf.summary.histogram('midn/feature_aggregated', feature_aggregated)
-
-        logits = slim.fully_connected(
-            feature_aggregated,
-            num_outputs=1,
-            activation_fn=None,
-            scope='midn/proba_c_given_i')
-        logits = tf.squeeze(logits, axis=-1)
-
-      else:
-        raise ValueError('Invalid attention target %s' % (attention_target))
-
-    tf.summary.histogram('midn/logits', logits)
+      logits = tf.multiply(logits_c_given_r, proba_r_given_c)
+      logits = tf.reduce_sum(logits, axis=1)
+      tf.summary.histogram('midn/logits', logits)
 
     return logits, proba_r_given_c
 
@@ -284,6 +260,10 @@ class Model(ModelBase):
 
     (features_to_crop, _) = self._feature_extractor.extract_proposal_features(
         preprocessed_inputs, scope='first_stage_feature_extraction')
+    #features_to_crop = slim.dropout(
+    #    features_to_crop,
+    #    keep_prob=options.dropout_keep_prob,
+    #    is_training=is_training)
 
     # Crop `flattened_proposal_features_maps`.
     #   shape = [batch*max_num_proposals, crop_size, crop_size, feature_depth].
@@ -335,10 +315,7 @@ class Model(ModelBase):
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       midn_logits, proba_r_given_c = self._build_midn_network(
-          num_proposals,
-          proposal_features,
-          attention_target=options.attention_target,
-          num_classes=self._num_classes)
+          num_proposals, proposal_features, num_classes=self._num_classes)
 
     # Build the OICR network.
     #   proposal_scores shape = [batch, max_num_proposals, 1 + num_classes].
@@ -358,18 +335,19 @@ class Model(ModelBase):
     predictions = {
         DetectionResultFields.num_proposals: num_proposals,
         DetectionResultFields.proposal_boxes: proposals,
-        OICRPredictions.midn_proba_r_given_c: proba_r_given_c,
         OICRPredictions.midn_logits: midn_logits,
+        OICRPredictions.midn_proba_r_given_c: proba_r_given_c,
     }
 
     # Post process to get the final detections.
 
-    labels = self._extract_class_label(
-        class_texts=examples[InputDataFields.caption_strings],
-        vocabulary_list=self._vocabulary_list)
-
-    midn_proposal_scores = tf.multiply(proba_r_given_c,
-                                       tf.expand_dims(labels, axis=1))
+    #labels = self._extract_class_label(
+    #    class_texts=examples[InputDataFields.caption_strings],
+    #    vocabulary_list=self._vocabulary_list)
+    #midn_proposal_scores = tf.multiply(proba_r_given_c,
+    #                                   tf.expand_dims(labels, axis=1))
+    midn_proposal_scores = tf.multiply(
+        tf.expand_dims(tf.nn.softmax(midn_logits), axis=1), proba_r_given_c)
 
     (predictions[DetectionResultFields.num_detections + '_at_{}'.format(0)],
      predictions[DetectionResultFields.detection_boxes + '_at_{}'.format(0)],
@@ -581,18 +559,23 @@ class Model(ModelBase):
           [tf.fill([batch, max_num_proposals, 1], 0.0), proposal_scores_0],
           axis=-1)
 
+      global_step = tf.train.get_or_create_global_step()
+      oicr_loss_mask = tf.cast(global_step > options.oicr_start_step,
+                               tf.float32)
+
       for i in range(options.oicr_iterations):
         proposal_scores_1 = predictions[OICRPredictions.oicr_proposal_scores +
                                         '_at_{}'.format(i + 1)]
+        oicr_cross_entropy_loss_at_i = self._calc_oicr_loss(
+            labels,
+            num_proposals,
+            proposals,
+            proposal_scores_0,
+            proposal_scores_1,
+            scope='oicr_{}'.format(i + 1),
+            iou_threshold=options.oicr_iou_threshold)
         loss_dict['oicr_cross_entropy_loss_at_{}'.format(
-            i + 1)] = self._calc_oicr_loss(
-                labels,
-                num_proposals,
-                proposals,
-                proposal_scores_0,
-                proposal_scores_1,
-                scope='oicr_{}'.format(i + 1),
-                iou_threshold=options.oicr_iou_threshold)
+            i + 1)] = oicr_loss_mask * oicr_cross_entropy_loss_at_i
 
         proposal_scores_0 = proposal_scores_1
 

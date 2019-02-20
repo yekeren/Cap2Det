@@ -298,6 +298,7 @@ class Model(ModelBase):
         tf.losses.add_loss(sparse_loss)
         tf.summary.scalar('loss/latent_sparse_loss', sparse_loss)
 
+
 #      # Before aggregate using max-pooling.
 #      #   logits_r_given_h shape = [batch, max_num_proposals, num_latent_factors].
 #      #   logits_h_given_c shape = [num_latent_factors, num_classes].
@@ -499,19 +500,22 @@ class Model(ModelBase):
 
     # Get predictions from different resolutions.
 
+    reuse = False
     for max_dimension in options.eval_max_dimension:
       inputs_resized = tf.expand_dims(
           imgproc.resize_image_to_max_dimension(inputs[0], max_dimension)[0],
           axis=0)
       examples[InputDataFields.image] = inputs_resized
-      predictions = self._build_prediction(examples, post_process=False)
+
+      with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
+        predictions = self._build_prediction(examples, post_process=False)
 
       for i in range(1 + options.oicr_iterations):
         proposals_scores = predictions[NOD2Predictions.oicr_proposal_scores +
                                        '_at_{}'.format(i)]
         proposal_scores_list[i].append(proposals_scores)
 
-      tf.get_variable_scope().reuse_variables()
+      reuse = True
 
     # Aggregate (averaging) predictions from different resolutions.
 

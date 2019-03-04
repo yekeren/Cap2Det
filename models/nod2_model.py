@@ -54,6 +54,9 @@ class Model(ModelBase):
         options.feature_extractor, is_training,
         options.inplace_batchnorm_update)
 
+    self._pcl_preprocess_fn = function_builder.build_post_processor(
+        options.pcl_preprocess)
+
     self._midn_post_process_fn = function_builder.build_post_processor(
         options.midn_post_process)
 
@@ -76,9 +79,7 @@ class Model(ModelBase):
       categorical_col = tf.feature_column.categorical_column_with_vocabulary_list(
           key='name_to_id', vocabulary_list=vocabulary_list, num_oov_buckets=1)
       indicator_col = tf.feature_column.indicator_column(categorical_col)
-      indicator = tf.feature_column.input_layer({
-          'name_to_id': class_texts
-      },
+      indicator = tf.feature_column.input_layer({'name_to_id': class_texts},
                                                 feature_columns=[indicator_col])
       labels = tf.cast(indicator[:, :-1] > 0, tf.float32)
       labels.set_shape([batch, len(vocabulary_list)])
@@ -410,8 +411,8 @@ class Model(ModelBase):
 
       # Post process.
 
-      (num_detections, detection_boxes, detection_scores,
-       detection_classes) = post_process_fn(proposals, proposal_scores)
+      (num_detections, detection_boxes, detection_scores, detection_classes,
+       _) = post_process_fn(proposals, proposal_scores)
 
       model_utils.visl_detections(
           inputs,
@@ -458,10 +459,30 @@ class Model(ModelBase):
     proposal_features = self._extract_frcnn_feature(inputs, num_proposals,
                                                     proposals)
 
+    # Build the OICR network.
+    #   proposal_scores shape = [batch, max_num_proposals, 1 + num_classes].
+    #   See `Multiple Instance Detection Network with OICR`.
+
+    predictions = {}
+    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
+      for i in range(options.oicr_iterations):
+        predictions[NOD2Predictions.oicr_proposal_scores + '_at_{}'.format(
+            i + 1)] = proposal_scores = slim.fully_connected(
+                proposal_features,
+                num_outputs=1 + self._num_classes,
+                activation_fn=None,
+                scope='oicr/iter{}'.format(i + 1))
+
+    if post_process and options.HasField('pcl_preprocess'):
+      proposal_scores = tf.nn.softmax(
+          tf.stop_gradient(proposal_scores), axis=-1)[:, :, 1:]
+      (num_proposals, proposals,
+       _, _, additional_fields) = self._pcl_preprocess_fn(
+           proposals, proposal_scores, {'proposal_features': proposal_features})
+      proposal_features = additional_fields['proposal_features']
+
     # Build MIDN network.
     #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
-
-    midn_proba_h_given_c = None
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       if options.attention_type == nod2_model_pb2.NOD2Model.PER_CLASS:
@@ -472,56 +493,23 @@ class Model(ModelBase):
         (midn_class_logits, midn_proposal_scores,
          midn_proba_r_given_c) = self._build_midn_network_tanh(
              num_proposals, proposal_features, num_classes=self._num_classes)
-      elif options.attention_type == nod2_model_pb2.NOD2Model.PER_HIDDEN_CLASS:
-        proba_h_given_c = None
-        if options.per_hidden_class_prior_proba:
-          with open(options.per_hidden_class_prior_proba, 'rb') as fid:
-            proba_h_given_c = np.load(fid)
-            proba_h_given_c = tf.constant(proba_h_given_c, dtype=tf.float32)
-
-        (midn_class_logits, midn_proposal_scores, midn_proba_r_given_c,
-         midn_proba_h_given_c) = self._build_latent_network(
-             num_proposals,
-             proposal_features,
-             num_classes=self._num_classes,
-             num_latent_factors=options.number_of_latent_factors,
-             proba_h_given_c=proba_h_given_c,
-             proba_h_use_sigmoid=options.prior_proba_use_sigmoid)
-
-        if options.prior_proba_use_sigmoid:
-          sparse_loss = tf.multiply(
-              tf.reduce_mean(midn_proba_h_given_c),
-              options.prior_proba_sparse_loss_weight)
-          tf.losses.add_loss(sparse_loss)
-          tf.summary.scalar('loss/latent_sparse_loss', sparse_loss)
       else:
         raise ValueError('Invalid attention type.')
 
-    predictions = {
-        DetectionResultFields.class_labels: tf.constant(self._vocabulary_list),
-        DetectionResultFields.num_proposals: num_proposals,
-        DetectionResultFields.proposal_boxes: proposals,
-        NOD2Predictions.midn_class_logits: midn_class_logits,
-        NOD2Predictions.midn_proba_r_given_c: midn_proba_r_given_c,
-    }
-    if midn_proba_h_given_c is not None:
-      predictions[NOD2Predictions.midn_proba_h_given_c] = midn_proba_h_given_c
-
-    # Build the OICR network.
-    #   proposal_scores shape = [batch, max_num_proposals, 1 + num_classes].
-    #   See `Multiple Instance Detection Network with OICR`.
-
-    predictions[NOD2Predictions.oicr_proposal_scores +
-                '_at_0'] = midn_proposal_scores
-
-    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      for i in range(options.oicr_iterations):
-        predictions[NOD2Predictions.oicr_proposal_scores +
-                    '_at_{}'.format(i + 1)] = slim.fully_connected(
-                        proposal_features,
-                        num_outputs=1 + self._num_classes,
-                        activation_fn=None,
-                        scope='oicr/iter{}'.format(i + 1))
+    predictions.update({
+        DetectionResultFields.class_labels:
+        tf.constant(self._vocabulary_list),
+        DetectionResultFields.num_proposals:
+        num_proposals,
+        DetectionResultFields.proposal_boxes:
+        proposals,
+        NOD2Predictions.midn_class_logits:
+        midn_class_logits,
+        NOD2Predictions.midn_proba_r_given_c:
+        midn_proba_r_given_c,
+        NOD2Predictions.oicr_proposal_scores + '_at_0':
+        midn_proposal_scores
+    })
 
     # Post process to get final predictions.
 
@@ -632,27 +620,35 @@ class Model(ModelBase):
             class_texts=slim.flatten(examples[InputDataFields.caption_strings]),
             vocabulary_list=self._vocabulary_list)
 
+      # A prediction model from caption to class
+
       # Loss of the multi-instance detection network.
 
       midn_class_logits = predictions[NOD2Predictions.midn_class_logits]
       losses = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=labels, logits=midn_class_logits)
 
-      #import pdb
-      #pdb.set_trace()
-      #loss_masks = tf.reduce_any(labels > 0, axis=-1)
-
       # Hard-negative mining.
 
       if options.midn_loss_negative_mining == nod2_model_pb2.NOD2Model.NONE:
         if options.classification_loss_use_sum:
+          assert False
           loss_dict['midn_cross_entropy_loss'] = tf.multiply(
               tf.reduce_mean(tf.reduce_sum(losses, axis=-1)),
               options.midn_loss_weight)
         else:
-          loss_dict['midn_cross_entropy_loss'] = tf.multiply(
-              tf.reduce_mean(losses), options.midn_loss_weight)
+          if options.caption_as_label:
+            loss_masks = tf.to_float(tf.reduce_any(labels > 0, axis=-1))
+            loss_dict['midn_cross_entropy_loss'] = tf.multiply(
+                tf.squeeze(
+                    utils.masked_avg(
+                        tf.reduce_mean(losses, axis=-1), mask=loss_masks,
+                        dim=0)), options.midn_loss_weight)
+          else:
+            loss_dict['midn_cross_entropy_loss'] = tf.multiply(
+                tf.reduce_mean(losses), options.midn_loss_weight)
       elif options.midn_loss_negative_mining == nod2_model_pb2.NOD2Model.HARDEST:
+        assert False
         loss_masks = self._midn_loss_mine_hardest_negative(labels, losses)
         loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(
             utils.masked_avg(data=losses, mask=loss_masks, dim=1))

@@ -14,24 +14,23 @@ from core import imgproc
 from core import utils
 from core import plotlib
 from core.standard_fields import InputDataFields
-from core.standard_fields import OICRTasks
-from core.standard_fields import OICRPredictions
+from core.standard_fields import NODPredictions
 from core.standard_fields import DetectionResultFields
 from core.training_utils import build_hyperparams
 from core import init_grid_anchors
 from models import utils as model_utils
 from core import box_utils
+from core import builder as function_builder
 
 from object_detection.builders import hyperparams_builder
-from object_detection.builders import box_predictor_builder
-from object_detection.core.post_processing import batch_multiclass_non_max_suppression
 from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
 
 slim = tf.contrib.slim
+_EPSILON = 1e-8
 
 
 class Model(ModelBase):
-  """OICR model."""
+  """NOD model."""
 
   def __init__(self, model_proto, is_training=False):
     """Initializes the model.
@@ -54,6 +53,37 @@ class Model(ModelBase):
     self._feature_extractor = build_faster_rcnn_feature_extractor(
         options.feature_extractor, is_training,
         options.inplace_batchnorm_update)
+
+    self._midn_post_process_fn = function_builder.build_post_processor(
+        options.midn_post_process)
+
+    self._oicr_post_process_fn = function_builder.build_post_processor(
+        options.oicr_post_process)
+
+  def _extract_class_label(self, class_texts, vocabulary_list):
+    """Extracts class labels.
+
+    Args:
+      class_texts: a [batch, 1, max_caption_len] string tensor.
+      vocabulary_list: a list of words of length `num_classes`.
+
+    Returns:
+      labels: a [batch, num_classes] float tensor.
+    """
+    with tf.name_scope('extract_class_label'):
+      batch, _, _ = utils.get_tensor_shape(class_texts)
+
+      categorical_col = tf.feature_column.categorical_column_with_vocabulary_list(
+          key='name_to_id', vocabulary_list=vocabulary_list, num_oov_buckets=1)
+      indicator_col = tf.feature_column.indicator_column(categorical_col)
+      indicator = tf.feature_column.input_layer({
+          'name_to_id': class_texts
+      },
+                                                feature_columns=[indicator_col])
+      labels = tf.cast(indicator[:, :-1] > 0, tf.float32)
+      labels.set_shape([batch, len(vocabulary_list)])
+
+    return labels
 
   def _extract_frcnn_feature(self, inputs, num_proposals, proposals):
     """Extracts Fast-RCNN feature from image.
@@ -78,10 +108,11 @@ class Model(ModelBase):
     (features_to_crop, _) = self._feature_extractor.extract_proposal_features(
         preprocessed_inputs, scope='first_stage_feature_extraction')
 
-    features_to_crop = slim.dropout(
-        features_to_crop,
-        keep_prob=options.dropout_keep_prob,
-        is_training=is_training)
+    if options.dropout_on_feature_map:
+      features_to_crop = slim.dropout(
+          features_to_crop,
+          keep_prob=options.dropout_keep_prob,
+          is_training=is_training)
 
     # Crop `flattened_proposal_features_maps`.
     #   shape = [batch*max_num_proposals, crop_size, crop_size, feature_depth].
@@ -130,7 +161,6 @@ class Model(ModelBase):
 
     return proposal_features
 
-
   def _build_midn_network(self,
                           num_proposals,
                           proposal_features,
@@ -156,45 +186,175 @@ class Model(ModelBase):
           num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
       mask = tf.expand_dims(mask, axis=-1)
 
-      # Calculates the attention score: proposal `r` given class `c`.
-      #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
+      # Calculates the values of following tensors:
+      #   logits_r_given_c shape = [batch, max_num_proposals, num_classes].
+      #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
 
-      logits_r_given_c = slim.fully_connected(
-          proposal_features,
-          num_outputs=num_classes,
-          activation_fn=None,
-          scope='midn/proba_r_given_c')
-      logits_r_given_c = tf.multiply(mask, logits_r_given_c)
+      with tf.variable_scope('midn'):
+        logits_r_given_c = slim.fully_connected(
+            proposal_features,
+            num_outputs=num_classes,
+            activation_fn=None,
+            scope='proba_r_given_c')
+        logits_c_given_r = slim.fully_connected(
+            proposal_features,
+            num_outputs=num_classes,
+            activation_fn=None,
+            scope='proba_c_given_r')
+
+      # Calculates the detection scores.
+
+      proba_r_given_c = utils.masked_softmax(
+          data=tf.multiply(mask, logits_r_given_c), mask=mask, dim=1)
+      proba_r_given_c = tf.multiply(mask, proba_r_given_c)
+
+      proba_c_given_r = tf.nn.softmax(logits_c_given_r)
+      proba_c_given_r = tf.multiply(mask, proba_c_given_r)
+
+      # Aggregates the logits.
+
+      proposal_scores = tf.multiply(proba_c_given_r, proba_r_given_c)
+      class_scores = tf.reduce_sum(proposal_scores, axis=1)
+
+      tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
+      tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
+      tf.summary.histogram('midn/proposal_scores', proposal_scores)
+      tf.summary.histogram('midn/class_scores', class_scores)
+
+    return class_scores, proposal_scores
+
+  def _build_latent_network(self,
+                            num_proposals,
+                            proposal_features,
+                            num_classes=20,
+                            num_latent_factors=20,
+                            proba_h_given_c=None):
+    """Builds the Multiple Instance Detection Network.
+
+    MIDN: An attention network.
+
+    Args:
+      num_proposals: A [batch] int tensor.
+      proposal_features: A [batch, max_num_proposals, features_dims] 
+        float tensor.
+      num_classes: Number of classes.
+      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
+
+    Returns:
+      logits: A [batch, num_classes] float tensor.
+      proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
+      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
+    """
+    if proba_h_given_c is not None:
+      assert proba_h_given_c.get_shape()[0].value == num_latent_factors
+
+    with tf.name_scope('multi_instance_detection'):
+
+      batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
+      mask = tf.sequence_mask(
+          num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
+      mask = tf.expand_dims(mask, axis=-1)
+
+      # Calculates the values of following tensors:
+      #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
+      #   logits_r_given_h shape = [batch, max_num_proposals, num_hiddens].
+      #   logits_h_given_c shape = [num_latent_factors, num_classes].
+
+      with tf.variable_scope('midn'):
+        logits_c_given_r = slim.fully_connected(
+            proposal_features,
+            num_outputs=num_classes,
+            activation_fn=None,
+            scope='proba_c_given_r')
+        logits_r_given_h = slim.fully_connected(
+            proposal_features,
+            num_outputs=num_latent_factors,
+            activation_fn=None,
+            scope='proba_r_given_h')
+
+        if proba_h_given_c is None:
+          logits_h_given_c = slim.fully_connected(
+              tf.diag(tf.ones([num_classes])),
+              num_outputs=num_latent_factors,
+              activation_fn=None,
+              scope='proba_h_given_c')
+          logits_h_given_c = tf.transpose(logits_h_given_c)
+          proba_h_given_c = tf.nn.softmax(logits_h_given_c, axis=0)
+          tf.summary.histogram('midn/logits_h_given_c', logits_h_given_c)
+
+      # Marginalize `h` to get proba_r_given_c.
+
+      logits_r_given_c = tf.matmul(
+          tf.reshape(logits_r_given_h, [-1, num_latent_factors]),
+          proba_h_given_c)
+      logits_r_given_c = tf.reshape(logits_r_given_c,
+                                    [batch, max_num_proposals, num_classes])
+
       proba_r_given_c = utils.masked_softmax(
           data=logits_r_given_c, mask=mask, dim=1)
       proba_r_given_c = tf.multiply(mask, proba_r_given_c)
-      tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
-
-      # Calculates the weighted logits:
-      #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
-      #   logits shape = [batch, num_classes].
-
-      logits_c_given_r = slim.fully_connected(
-          proposal_features,
-          num_outputs=num_classes,
-          activation_fn=None,
-          scope='midn/proba_c_given_r')
-      proba_c_given_r = tf.nn.softmax(logits_c_given_r)
-      proba_c_given_r = tf.multiply(mask, proba_c_given_r)
-      tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
 
       # Aggregates the logits.
 
       logits = tf.multiply(logits_c_given_r, proba_r_given_c)
       logits = tf.reduce_sum(logits, axis=1)
+
       tf.summary.histogram('midn/logits', logits)
+      tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
+      tf.summary.histogram('midn/logits_r_given_h', logits_r_given_h)
 
-    return logits, proba_r_given_c
+    return logits, proba_r_given_c, proba_h_given_c
 
-  def build_prediction(self,
-                       examples,
-                       prediction_task=OICRTasks.image_label,
-                       **kwargs):
+  def _post_process(self, inputs, predictions):
+    """Post processes the predictions.
+
+    Args:
+      predictions: A dict mapping from name to tensor.
+
+    Returns:
+      predictions: A dict mapping from name to tensor.
+    """
+    options = self._model_proto
+
+    results = {}
+
+    # Post process to get the final detections.
+
+    proposals = predictions[DetectionResultFields.proposal_boxes]
+
+    for i in range(1 + options.oicr_iterations):
+      post_process_fn = self._midn_post_process_fn
+      proposal_scores = predictions[NODPredictions.oicr_proposal_scores +
+                                    '_at_{}'.format(i)]
+      if i > 0:
+        post_process_fn = self._oicr_post_process_fn
+        proposal_scores = tf.nn.softmax(proposal_scores, axis=-1)[:, :, 1:]
+
+      # Post process.
+
+      (num_detections, detection_boxes, detection_scores,
+       detection_classes) = post_process_fn(proposals, proposal_scores)
+
+      model_utils.visl_proposals_top_k(
+          inputs,
+          num_detections,
+          detection_boxes,
+          detection_scores,
+          tf.gather(self._vocabulary_list, tf.to_int32(detection_classes - 1)),
+          threshold=0.01,
+          name='detection_{}'.format(i))
+
+      results[DetectionResultFields.num_detections +
+              '_at_{}'.format(i)] = num_detections
+      results[DetectionResultFields.detection_boxes +
+              '_at_{}'.format(i)] = detection_boxes
+      results[DetectionResultFields.detection_scores +
+              '_at_{}'.format(i)] = detection_scores
+      results[DetectionResultFields.detection_classes +
+              '_at_{}'.format(i)] = detection_classes
+    return results
+
+  def _build_prediction(self, examples, post_process=True):
     """Builds tf graph for prediction.
 
     Args:
@@ -212,6 +372,10 @@ class Model(ModelBase):
                    examples[InputDataFields.num_proposals],
                    examples[InputDataFields.proposals])
 
+    tf.summary.image('inputs', inputs, max_outputs=10)
+    model_utils.visl_proposals(
+        inputs, num_proposals, proposals, name='proposals', top_k=100)
+
     # FRCNN.
 
     proposal_features = self._extract_frcnn_feature(inputs, num_proposals,
@@ -221,106 +385,93 @@ class Model(ModelBase):
     #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      midn_logits, proba_r_given_c = self._build_midn_network(
-          num_proposals, proposal_features, num_classes=self._num_classes)
+      if options.attention_type == nod_model_pb2.NODModel.PER_CLASS:
+        midn_class_scores, midn_proposal_scores = self._build_midn_network(
+            num_proposals, proposal_features, num_classes=self._num_classes)
+      else:
+        raise ValueError('Invalid attention type.')
+
+    predictions = {
+        DetectionResultFields.num_proposals: num_proposals,
+        DetectionResultFields.proposal_boxes: proposals,
+        NODPredictions.midn_class_scores: midn_class_scores,
+    }
 
     # Build the OICR network.
     #   proposal_scores shape = [batch, max_num_proposals, 1 + num_classes].
     #   See `Multiple Instance Detection Network with OICR`.
 
-    oicr_proposal_scores_list = []
+    predictions[NODPredictions.oicr_proposal_scores +
+                '_at_0'] = midn_proposal_scores
+
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      with tf.name_scope('online_instance_classifier_refinement'):
-        for i in range(options.oicr_iterations):
-          oicr_proposal_scores_at_i = slim.fully_connected(
-              proposal_features,
-              num_outputs=1 + self._num_classes,
-              activation_fn=None,
-              scope='oicr/iter{}'.format(i + 1))
-          oicr_proposal_scores_list.append(oicr_proposal_scores_at_i)
+      for i in range(options.oicr_iterations):
+        predictions[NODPredictions.oicr_proposal_scores +
+                    '_at_{}'.format(i + 1)] = slim.fully_connected(
+                        proposal_features,
+                        num_outputs=1 + self._num_classes,
+                        activation_fn=None,
+                        scope='oicr/iter{}'.format(i + 1))
 
-    predictions = {
-        DetectionResultFields.num_proposals: num_proposals,
-        DetectionResultFields.proposal_boxes: proposals,
-        OICRPredictions.midn_logits: midn_logits,
-        OICRPredictions.midn_proba_r_given_c: proba_r_given_c,
-    }
+    # Post process to get final predictions.
 
-    # Post process to get the final detections.
-
-    midn_proposal_scores = tf.multiply(
-        tf.expand_dims(tf.nn.softmax(midn_logits), axis=1), proba_r_given_c)
-
-    (predictions[DetectionResultFields.num_detections + '_at_{}'.format(0)],
-     predictions[DetectionResultFields.detection_boxes + '_at_{}'.format(0)],
-     predictions[DetectionResultFields.detection_scores + '_at_{}'.format(0)],
-     predictions[DetectionResultFields.detection_classes +
-                 '_at_{}'.format(0)]) = model_utils.post_process(
-                     proposals, midn_proposal_scores)
-
-    model_utils.visl_proposals(
-        inputs, num_proposals, proposals, name='proposals', top_k=2000)
-
-    for i, oicr_proposal_scores_at_i in enumerate(oicr_proposal_scores_list):
-      predictions[OICRPredictions.oicr_proposal_scores +
-                  '_at_{}'.format(i + 1)] = oicr_proposal_scores_at_i
-
-      (predictions[DetectionResultFields.num_detections +
-                   '_at_{}'.format(i + 1)],
-       predictions[DetectionResultFields.detection_boxes +
-                   '_at_{}'.format(i + 1)],
-       predictions[DetectionResultFields.detection_scores +
-                   '_at_{}'.format(i + 1)],
-       predictions[DetectionResultFields.detection_classes +
-                   '_at_{}'.format(i + 1)]) = model_utils.post_process(
-                       proposals,
-                       tf.nn.softmax(oicr_proposal_scores_at_i,
-                                     axis=-1)[:, :, 1:])
-
-    for i in range(1 + options.oicr_iterations):
-      num_detections, detection_boxes, detection_scores, detection_classes = (
-          predictions[DetectionResultFields.num_detections +
-                      '_at_{}'.format(i)],
-          predictions[DetectionResultFields.detection_boxes +
-                      '_at_{}'.format(i)],
-          predictions[DetectionResultFields.detection_scores +
-                      '_at_{}'.format(i)],
-          predictions[DetectionResultFields.detection_classes +
-                      '_at_{}'.format(i)])
-      model_utils.visl_proposals_top_k(
-          inputs,
-          num_detections,
-          detection_boxes,
-          detection_scores,
-          tf.gather(self._vocabulary_list, tf.to_int32(detection_classes - 1)),
-          name='detection_{}'.format(i))
+    if post_process:
+      predictions.update(self._post_process(inputs, predictions))
 
     return predictions
 
-  def _extract_class_label(self, class_texts, vocabulary_list):
-    """Extracts class labels.
+  def build_prediction(self, examples, **kwargs):
+    """Builds tf graph for prediction.
 
     Args:
-      class_texts: a [batch, 1, max_caption_len] string tensor.
-      vocabulary_list: a list of words of length `num_classes`.
+      examples: dict of input tensors keyed by name.
+      prediction_task: the specific prediction task.
 
     Returns:
-      labels: a [batch, num_classes] float tensor.
+      predictions: dict of prediction results keyed by name.
     """
-    with tf.name_scope('extract_class_label'):
-      batch, _, _ = utils.get_tensor_shape(class_texts)
+    options = self._model_proto
+    is_training = self._is_training
 
-      categorical_col = tf.feature_column.categorical_column_with_vocabulary_list(
-          key='name_to_id', vocabulary_list=vocabulary_list, num_oov_buckets=1)
-      indicator_col = tf.feature_column.indicator_column(categorical_col)
-      indicator = tf.feature_column.input_layer({
-          'name_to_id': class_texts
-      },
-                                                feature_columns=[indicator_col])
-      labels = tf.cast(indicator[:, :-1] > 0, tf.float32)
-      labels.set_shape([batch, len(vocabulary_list)])
+    if is_training:
+      return self._build_prediction(examples)
 
-    return labels
+    return self._build_prediction(examples)
+
+    #inputs = examples[InputDataFields.image]
+    #assert inputs.get_shape()[0].value == 1
+
+    #proposal_scores_list = [[] for _ in range(1 + options.oicr_iterations)]
+
+    ## Get predictions from different resolutions.
+
+    #for max_dimension in options.eval_max_dimension:
+    #  inputs_resized = tf.expand_dims(
+    #      imgproc.resize_image_to_max_dimension(inputs[0], max_dimension)[0],
+    #      axis=0)
+    #  examples[InputDataFields.image] = inputs_resized
+    #  predictions = self._build_prediction(examples, post_process=False)
+
+    #  for i in range(1 + options.oicr_iterations):
+    #    proposals_scores = predictions[NODPredictions.oicr_proposal_scores +
+    #                                   '_at_{}'.format(i)]
+    #    proposal_scores_list[i].append(proposals_scores)
+
+    #  tf.get_variable_scope().reuse_variables()
+
+    ## Aggregate (averaging) predictions from different resolutions.
+
+    #predictions_aggregated = predictions
+    #for i in range(1 + options.oicr_iterations):
+    #  proposal_scores = tf.stack(proposal_scores_list[i], axis=-1)
+    #  proposal_scores = tf.reduce_max(proposal_scores, axis=-1)
+    #  predictions_aggregated[NODPredictions.oicr_proposal_scores +
+    #                         '_at_{}'.format(i)] = proposal_scores
+
+    #predictions_aggregated.update(
+    #    self._post_process(inputs, predictions_aggregated))
+
+    #return predictions_aggregated
 
   def build_loss(self, predictions, examples, **kwargs):
     """Build tf graph to compute loss.
@@ -346,17 +497,18 @@ class Model(ModelBase):
 
       # Loss of the multi-instance detection network.
 
-      midn_logits = predictions[OICRPredictions.midn_logits]
-      losses = tf.nn.sigmoid_cross_entropy_with_logits(
-          labels=labels, logits=midn_logits)
+      midn_class_scores = tf.clip_by_value(
+          predictions[NODPredictions.midn_class_scores], _EPSILON, 1 - _EPSILON)
+      losses = -labels * tf.log(midn_class_scores) - (
+          1.0 - labels) * tf.log(1.0 - midn_class_scores)
       loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(losses)
 
       # Losses of the online instance classifier refinement network.
 
-      (num_proposals, proposals,
-       proposal_scores_0) = (predictions[DetectionResultFields.num_proposals],
-                             predictions[DetectionResultFields.proposal_boxes],
-                             predictions[OICRPredictions.midn_proba_r_given_c])
+      (num_proposals, proposals, proposal_scores_0) = (
+          predictions[DetectionResultFields.num_proposals],
+          predictions[DetectionResultFields.proposal_boxes],
+          predictions[NODPredictions.oicr_proposal_scores + '_at_0'])
 
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_scores_0)
       proposal_scores_0 = tf.concat(
@@ -368,7 +520,7 @@ class Model(ModelBase):
                                tf.float32)
 
       for i in range(options.oicr_iterations):
-        proposal_scores_1 = predictions[OICRPredictions.oicr_proposal_scores +
+        proposal_scores_1 = predictions[NODPredictions.oicr_proposal_scores +
                                         '_at_{}'.format(i + 1)]
         oicr_cross_entropy_loss_at_i = model_utils.calc_oicr_loss(
             labels,
@@ -381,7 +533,7 @@ class Model(ModelBase):
         loss_dict['oicr_cross_entropy_loss_at_{}'.format(
             i + 1)] = oicr_loss_mask * oicr_cross_entropy_loss_at_i
 
-        proposal_scores_0 = proposal_scores_1
+        proposal_scores_0 = tf.nn.softmax(proposal_scores_1, axis=-1)
 
     return loss_dict
 

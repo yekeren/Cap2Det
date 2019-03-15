@@ -152,7 +152,7 @@ def masked_avg_nd(data, mask, dim=1):
   """Computes the axis wise avg over chosen elements.
 
   Args:
-    data: 2-D float `Tensor` of size [n, m].
+    data: 3-D float `Tensor` of size [n, m, d].
     mask: 2-D boolean `Tensor` of size [n, m].
     dim: The dimension over which to compute the avg.
 
@@ -197,3 +197,32 @@ def masked_argmax(data, mask, dim=1):
   """
   axis_minimums = tf.reduce_min(data, dim, keepdims=True)
   return tf.argmax(tf.multiply(data - axis_minimums, mask), dim)
+
+
+def masked_argmin(data, mask, dim=1):
+  """Computes the axis wise argmin over chosen elements.
+
+  Args:
+    data: 2-D float `Tensor` of size [n, m].
+    mask: 2-D boolean `Tensor` of size [n, m].
+    dim: The dimension over which to compute the argmin.
+
+  Returns:
+    masked_argmin: N-D `Tensor`.
+  """
+  axis_maximums = tf.reduce_max(data, dim, keepdims=True)
+  return tf.argmin(tf.multiply(data - axis_maximums, mask), dim)
+
+
+def covariance(x):
+  """Computes covariance matrix of data x.
+
+  Args:
+    x: 2-D float `Tensor` of size [n, m].
+
+  Returns:
+    cov: 2D float `Tensor` of size [n, n].
+  """
+  x = x - tf.reduce_mean(x, axis=1, keep_dims=True)
+  cov = tf.matmul(x, tf.transpose(x)) / tf.to_float(tf.shape(x)[1])
+  return cov

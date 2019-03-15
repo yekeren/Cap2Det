@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import tensorflow as tf
 
 from protos import hyperparams_pb2
@@ -227,3 +228,81 @@ def _build_batch_norm_params(batch_norm, is_training):
       'is_training': is_training and batch_norm.train,
   }
   return batch_norm_params
+
+
+def get_best_model_checkpoint(saved_ckpts_dir):
+  """Gets the path of the best checkpoint.
+
+  Args:
+    saved_ckpt_dir: the directory used to save the best model.
+
+  Returns:
+    path to the best checkpoint.
+  """
+  filename = 'saved_info.txt'
+  filename = os.path.join(saved_ckpts_dir, filename)
+  assert tf.gfile.Exists(filename)
+
+  with open(filename, 'r') as fp:
+    step_best, metric_best = fp.readline().strip().split('\t')
+
+  ckpt_path = os.path.join(saved_ckpts_dir, 'model.ckpt-{}'.format(step_best))
+
+  assert tf.gfile.Exists(ckpt_path+ '.meta')
+  assert tf.gfile.Exists(ckpt_path+ '.index')
+  return ckpt_path
+
+
+def save_model_if_it_is_better(global_step, model_metric, 
+    model_path, saved_ckpts_dir, reverse=False):
+  """Saves model if it is better than previous best model.
+
+  The function backups model checkpoint if it is a better model.
+
+  Args:
+    global_step: a integer denoting current global step.
+    model_metric: a float number denoting performance of current model.
+    model_path: current model path.
+    saved_ckpt_dir: the directory used to save the best model.
+    reverse: if True, smaller value means better model.
+
+  Returns:
+    step_best: global step of the best model.
+    metric_best: performance of the best model.
+  """
+  tf.gfile.MakeDirs(saved_ckpts_dir)
+
+  # Read the record file to get the previous best model.
+  filename = 'saved_info.txt'
+  filename = os.path.join(saved_ckpts_dir, filename)
+
+  step_best, metric_best = None, None
+  if tf.gfile.Exists(filename):
+    with open(filename, 'r') as fp:
+      step_best, metric_best = fp.readline().strip().split('\t')
+    step_best, metric_best = int(step_best), float(metric_best)
+
+  condition = lambda x, y: (x > y) if not reverse else (x < y)
+
+  if metric_best is None or condition(model_metric, metric_best):
+    tf.logging.info(
+        'Current model[%.4lf] is better than the previous best one[%.4lf].',
+        model_metric, 0.0 if metric_best is None else metric_best)
+    step_best, metric_best = global_step, model_metric
+
+    # Backup checkpoint files.
+    tf.logging.info('Copying files...')
+
+    with open(filename, 'w') as fp:
+      fp.write('%d\t%.8lf' % (global_step, model_metric))
+
+    for existing_path in tf.gfile.Glob(
+        os.path.join(saved_ckpts_dir, 'model.ckpt*')):
+      tf.gfile.Remove(existing_path)
+      tf.logging.info('Remove %s.', existing_path)
+
+    for source_path in tf.gfile.Glob(model_path + '*'):
+      dest_path = os.path.join(saved_ckpts_dir, os.path.split(source_path)[1])
+      tf.gfile.Copy(source_path, dest_path, overwrite=True)
+      tf.logging.info('Copy %s to %s.', source_path, dest_path)
+  return step_best, metric_best

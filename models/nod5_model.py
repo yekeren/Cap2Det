@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from models.model_base import ModelBase
-from protos import nod3_model_pb2
+from protos import nod5_model_pb2
 
 from nets import nets_factory
 from nets import vgg
@@ -14,13 +14,14 @@ from core import imgproc
 from core import utils
 from core import plotlib
 from core.standard_fields import InputDataFields
-from core.standard_fields import NOD3Predictions
+from core.standard_fields import NOD5Predictions
 from core.standard_fields import DetectionResultFields
 from core.training_utils import build_hyperparams
 from core import init_grid_anchors
 from models import utils as model_utils
 from core import box_utils
 from core import builder as function_builder
+from core import sequence_encoding
 
 from object_detection.builders import hyperparams_builder
 from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
@@ -30,19 +31,19 @@ _EPSILON = 1e-8
 
 
 class Model(ModelBase):
-  """NOD3 model."""
+  """NOD5 model."""
 
   def __init__(self, model_proto, is_training=False):
     """Initializes the model.
 
     Args:
-      model_proto: an instance of nod3_model_pb2.NOD3Model
+      model_proto: an instance of nod5_model_pb2.NOD5Model
       is_training: if True, training graph will be built.
     """
     super(Model, self).__init__(model_proto, is_training)
 
-    if not isinstance(model_proto, nod3_model_pb2.NOD3Model):
-      raise ValueError('The model_proto has to be an instance of NOD3Model.')
+    if not isinstance(model_proto, nod5_model_pb2.NOD5Model):
+      raise ValueError('The model_proto has to be an instance of NOD5Model.')
 
     options = model_proto
 
@@ -68,6 +69,9 @@ class Model(ModelBase):
     self._oicr_post_process_fn = function_builder.build_post_processor(
         options.oicr_post_process)
 
+    self._text_encoding_fn = sequence_encoding.get_encode_fn(
+        options.text_encoding)
+
   def _extract_class_label(self, class_texts, vocabulary_list):
     """Extracts class labels.
 
@@ -84,13 +88,168 @@ class Model(ModelBase):
       categorical_col = tf.feature_column.categorical_column_with_vocabulary_list(
           key='name_to_id', vocabulary_list=vocabulary_list, num_oov_buckets=1)
       indicator_col = tf.feature_column.indicator_column(categorical_col)
-      indicator = tf.feature_column.input_layer({
-          'name_to_id': class_texts
-      },
+      indicator = tf.feature_column.input_layer({'name_to_id': class_texts},
                                                 feature_columns=[indicator_col])
       labels = tf.cast(indicator[:, :-1] > 0, tf.float32)
       labels.set_shape([batch, len(vocabulary_list)])
 
+    return labels
+
+  def _encode_tokens(self,
+                     tokens,
+                     embedding_dims,
+                     vocabulary_list,
+                     initial_embedding=None,
+                     trainable=True,
+                     init_width=0.03):
+    """Encodes tokens to the embedding vectors.
+
+    Args:
+      tokens: A list of words or a string tensor of shape [#tokens].
+      embedding_dims: Embedding dimensions.
+      vocabulary_list: A list of words.
+
+    Returns:
+      A [#tokens, embedding_dims] float tensor.
+    """
+    table = tf.contrib.lookup.index_table_from_tensor(
+        vocabulary_list, num_oov_buckets=1)
+    token_ids = table.lookup(tokens)
+
+    if initial_embedding is not None:
+      unk_emb = init_width * (np.random.rand(1, embedding_dims) * 2 - 1)
+      initial_value = np.concatenate([initial_embedding, unk_emb], axis=0)
+    else:
+      initial_value = init_width * (
+          np.random.rand(1 + len(vocabulary_list), embedding_dims) * 2 - 1)
+
+    embedding_weights = tf.get_variable(
+        name='weights',
+        initializer=initial_value.astype(np.float32),
+        trainable=trainable)
+    token_embedding = tf.nn.embedding_lookup(
+        embedding_weights, token_ids, max_norm=None)
+    tf.summary.histogram('token_embedding', token_embedding)
+    return token_ids, token_embedding
+
+  def _extract_text_feature(self,
+                            text_strings,
+                            text_lengths,
+                            vocabulary_list,
+                            initial_embedding=None,
+                            embedding_dims=50,
+                            trainable=True):
+    """Extracts text feature.
+
+    Args:
+      text_strings: A [batch, max_text_length] string tensor.
+      text_lengths: A [batch] int tensor.
+      vocabulary_list: A list of words.
+
+    Returns:
+      text_features: a [batch, max_text_length, feature_dims] float tensor.
+    """
+    batch, max_text_length = utils.get_tensor_shape(text_strings)
+
+    text_strings_flattented = tf.reshape(text_strings, [-1])
+    token_ids_flatterned, text_features_flattened = self._encode_tokens(
+        text_strings_flattented, embedding_dims, vocabulary_list,
+        initial_embedding, trainable)
+
+    token_ids = tf.reshape(token_ids_flatterned, [batch, max_text_length])
+    text_features = tf.reshape(text_features_flattened,
+                               [batch, max_text_length, embedding_dims])
+    return token_ids, text_features
+
+  def _extract_pseudo_label(self,
+                            texts,
+                            vocabulary_list,
+                            open_vocabulary_list,
+                            embedding_dims=50):
+    """Extracts class labels.
+
+    Args:
+      texts: a [batch, max_text_length] string tensor.
+      vocabulary_list: a list of words of length `num_classes`.
+      open_vocabulary_list: a list of words of length `num_tokens`.
+
+    Returns:
+      labels: a [batch, num_classes] float tensor.
+    """
+
+    mapping = {
+        # For coco mapping.
+        'traffic light': 'stoplight',
+        'fire hydrant': 'hydrant',
+        'stop sign': 'sign',
+        'parking meter': 'meter',
+        'sports ball': 'ball',
+        'baseball bat': 'bat',
+        'baseball glove': 'glove',
+        'tennis racket': 'racket',
+        'wine glass': 'wineglass',
+        'hot dog': 'hotdog',
+        'potted plant': 'plant',
+        'dining table': 'table',
+        'cell phone': 'cellphone',
+        'teddy bear': 'teddy',
+        'hair drier': 'hairdryer',
+        # For pascal mapping.
+        'aeroplane': 'airplane',
+        'diningtable': 'table',
+        'pottedplant': 'plant',
+        'tvmonitor': 'tv',
+    }
+
+    vocabulary_list = [mapping.get(cls, cls) for cls in vocabulary_list]
+
+    for cls in vocabulary_list:
+      if open_vocabulary_list.index(cls) < 0:
+        tf.logging.warn('Unknown class name {}'.format(cls))
+
+    # Class embedding shape = [num_classes, embedding_dims].
+    # Text embedding shape = [batch, max_text_length, embedding_dims].
+
+    with tf.variable_scope('token_embedding'):
+      class_token_ids, class_embeddings = self._encode_tokens(
+          tokens=tf.constant(vocabulary_list),
+          initial_embedding=self._open_vocabulary_initial_embedding,
+          embedding_dims=embedding_dims,
+          vocabulary_list=open_vocabulary_list,
+          trainable=False)
+
+    with tf.variable_scope('token_embedding', reuse=True):
+      text_token_ids, text_embeddings = self._extract_text_feature(
+          texts,
+          None,
+          open_vocabulary_list,
+          initial_embedding=self._open_vocabulary_initial_embedding,
+          embedding_dims=embedding_dims,
+          trainable=False)
+
+    # Compute text-to-class similarity.
+
+    class_embeddings = tf.nn.l2_normalize(class_embeddings, axis=-1)
+    text_embeddings = tf.nn.l2_normalize(text_embeddings, axis=-1)
+
+    dot_product = tf.multiply(
+        tf.expand_dims(tf.expand_dims(class_embeddings, axis=0), axis=0),
+        tf.expand_dims(text_embeddings, axis=2))
+    similarity = tf.reduce_sum(dot_product, axis=-1)
+
+    oov = len(open_vocabulary_list)
+    mask = tf.to_float(tf.not_equal(text_token_ids, oov))
+    similarity_aggr = utils.masked_maximum(
+        data=similarity, mask=tf.expand_dims(mask, axis=-1), dim=1)
+    similarity_aggr = tf.squeeze(similarity_aggr, axis=1)
+
+    batch, num_classes = utils.get_tensor_shape(similarity_aggr)
+    indices0 = tf.range(batch, dtype=tf.int64)
+    indices1 = tf.argmax(similarity_aggr, axis=1)
+    indices = tf.stack([indices0, indices1], axis=-1)
+
+    labels = tf.sparse_to_dense(
+        indices, output_shape=[batch, num_classes], sparse_values=1.0)
     return labels
 
   def _extract_frcnn_feature(self, inputs, num_proposals, proposals):
@@ -242,9 +401,7 @@ class Model(ModelBase):
   def _build_midn_network(self,
                           num_proposals,
                           proposal_features,
-                          num_classes=20,
-                          name_scope='multi_instance_detection',
-                          var_scope='multi_instance_detection'):
+                          num_classes=20):
     """Builds the Multiple Instance Detection Network.
 
     MIDN: An attention network.
@@ -257,10 +414,9 @@ class Model(ModelBase):
 
     Returns:
       logits: A [batch, num_classes] float tensor.
-      proposal_scores: A [batch, max_num_proposals, num_classes] float tensor.
       proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
     """
-    with tf.name_scope(name_scope):
+    with tf.name_scope('multi_instance_detection'):
 
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
       mask = tf.sequence_mask(
@@ -271,7 +427,7 @@ class Model(ModelBase):
       #   logits_r_given_c shape = [batch, max_num_proposals, num_classes].
       #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
 
-      with tf.variable_scope(var_scope):
+      with tf.variable_scope('midn'):
         logits_r_given_c = slim.fully_connected(
             proposal_features,
             num_outputs=num_classes,
@@ -306,6 +462,93 @@ class Model(ModelBase):
 
     return tf.squeeze(class_logits, axis=1), proposal_scores, proba_r_given_c
 
+  def _build_latent_network(self,
+                            num_proposals,
+                            proposal_features,
+                            num_classes=20,
+                            num_latent_factors=20,
+                            proba_h_given_c=None,
+                            proba_h_use_sigmoid=False):
+    """Builds the Multiple Instance Detection Network.
+
+    MIDN: An attention network.
+
+    Args:
+      num_proposals: A [batch] int tensor.
+      proposal_features: A [batch, max_num_proposals, features_dims] 
+        float tensor.
+      num_classes: Number of classes.
+      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
+
+    Returns:
+      logits: A [batch, num_classes] float tensor.
+      proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
+      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
+    """
+    if proba_h_given_c is not None:
+      assert proba_h_given_c.get_shape()[0].value == num_latent_factors
+
+    batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
+    mask = tf.sequence_mask(
+        num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
+    mask = tf.expand_dims(mask, axis=-1)
+
+    # Calculates the values of following tensors:
+    #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
+    #   logits_r_given_h shape = [batch, max_num_proposals, num_latent_factors].
+    #   logits_h_given_c shape = [num_latent_factors, num_classes].
+
+    with tf.variable_scope('midn'):
+      logits_c_given_r = slim.fully_connected(
+          proposal_features,
+          num_outputs=num_classes,
+          activation_fn=None,
+          scope='proba_c_given_r')
+      logits_r_given_h = slim.fully_connected(
+          proposal_features,
+          num_outputs=num_latent_factors,
+          activation_fn=None,
+          scope='proba_r_given_h')
+
+      if proba_h_given_c is None:
+        logits_h_given_c = slim.fully_connected(
+            tf.diag(tf.ones([num_classes])),
+            num_outputs=num_latent_factors,
+            activation_fn=None,
+            scope='proba_h_given_c')
+        logits_h_given_c = tf.transpose(logits_h_given_c)
+        tf.summary.histogram('logits_h_given_c', logits_h_given_c)
+
+        if proba_h_use_sigmoid:
+          proba_h_given_c = tf.nn.sigmoid(logits_h_given_c)
+        else:
+          proba_h_given_c = tf.nn.softmax(logits_h_given_c, axis=0)
+
+    logits_r_given_c = tf.matmul(
+        tf.reshape(logits_r_given_h, [-1, num_latent_factors]), proba_h_given_c)
+    logits_r_given_c = tf.reshape(logits_r_given_c,
+                                  [batch, max_num_proposals, num_classes])
+
+    proba_r_given_c = utils.masked_softmax(
+        data=logits_r_given_c, mask=mask, dim=1)
+    proba_r_given_c = tf.multiply(mask, proba_r_given_c)
+
+    # Aggregates the logits.
+
+    class_logits = tf.multiply(logits_c_given_r, proba_r_given_c)
+    class_logits = utils.masked_sum(data=class_logits, mask=mask, dim=1)
+
+    proposal_scores = tf.multiply(tf.nn.sigmoid(class_logits), proba_r_given_c)
+    #proposal_scores = tf.multiply(
+    #    tf.nn.softmax(class_logits), proba_r_given_c)
+
+    tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
+    tf.summary.histogram('midn/logits_r_given_h', logits_r_given_h)
+    tf.summary.histogram('midn/class_logits', class_logits)
+
+    return (tf.squeeze(class_logits, axis=1), proposal_scores, proba_r_given_c,
+            proba_h_given_c)
+
   def _post_process(self, inputs, predictions):
     """Post processes the predictions.
 
@@ -325,7 +568,7 @@ class Model(ModelBase):
 
     for i in range(1 + options.oicr_iterations):
       post_process_fn = self._midn_post_process_fn
-      proposal_scores = predictions[NOD3Predictions.oicr_proposal_scores +
+      proposal_scores = predictions[NOD5Predictions.oicr_proposal_scores +
                                     '_at_{}'.format(i)]
       proposal_scores = tf.stop_gradient(proposal_scores)
       if i > 0:
@@ -355,64 +598,43 @@ class Model(ModelBase):
               '_at_{}'.format(i)] = detection_classes
     return results
 
-  def _encode_tokens(self,
-                     tokens,
-                     embedding_dims,
-                     vocabulary_list,
-                     trainable=True):
-    """Encodes tokens to the embedding vectors.
+  def _build_object_prediction_network(self, texts, text_lengths,
+                                       open_vocabulary_list, embedding_dims):
+    """Builds tf graph for predicting object labels from captions.
 
     Args:
-      tokens: A list of words or a string tensor of shape [#tokens].
-      embedding_dims: Embedding dimensions.
-      vocabulary_list: A list of words.
-
-    Returns:
-      A [#tokens, embedding_dims] float tensor.
-    """
-    table = tf.contrib.lookup.index_table_from_tensor(
-        vocabulary_list, num_oov_buckets=1)
-    token_ids = table.lookup(tokens)
-
-    unk_emb = 0.03 * (np.random.rand(1, embedding_dims) * 2 - 1)
-    initial_value = np.concatenate(
-        [self._open_vocabulary_initial_embedding, unk_emb], axis=0)
-
-    with tf.variable_scope('word_embedding'):
-      embedding_weights = tf.get_variable(
-          name='weights',
-          initializer=initial_value.astype(np.float32),
-          trainable=trainable)
-    token_embedding = tf.nn.embedding_lookup(
-        embedding_weights, token_ids, max_norm=None)
-    tf.summary.histogram('triplet/token_embedding', token_embedding)
-    return token_embedding
-
-  def _extract_text_feature(self,
-                            text_strings,
-                            text_lengths,
-                            vocabulary_list,
-                            embedding_dims=50,
-                            trainable=True):
-    """Extracts text feature.
-
-    Args:
-      text_strings: A [batch, max_text_length] string tensor.
+      texts: A [batch, max_text_length] string tensor.
       text_lengths: A [batch] int tensor.
-      vocabulary_list: A list of words.
+      open_vocabulary_list: A list of words.
+      embedding_dims:
 
     Returns:
-      text_features: a [batch, max_text_length, feature_dims] float tensor.
+      predicted_logits: A [batch, num_classes] float tensor.
     """
-    batch, max_text_length = utils.get_tensor_shape(text_strings)
+    options = self._model_proto
+    is_training = self._is_training
 
-    text_strings_flattented = tf.reshape(text_strings, [-1])
-    text_feature_flattened = self._encode_tokens(
-        text_strings_flattented, embedding_dims, vocabulary_list, trainable)
+    _, caption_features = self._extract_text_feature(
+        texts,
+        text_lengths,
+        vocabulary_list=open_vocabulary_list,
+        initial_embedding=self._open_vocabulary_initial_embedding,
+        embedding_dims=embedding_dims,
+        trainable=options.train_word_embedding)
 
-    text_feature = tf.reshape(text_feature_flattened,
-                              [batch, max_text_length, embedding_dims])
-    return text_feature
+    caption_text_features = self._text_encoding_fn(
+        caption_features, text_lengths, is_training=is_training)
+
+    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
+      predicted_logits = slim.fully_connected(
+          caption_text_features,
+          num_outputs=self._num_classes,
+          activation_fn=None,
+          scope="predicted_logits")
+
+    tf.summary.histogram("object_prediction/predicted_logits", predicted_logits)
+
+    return predicted_logits
 
   def _build_prediction(self, examples, post_process=True):
     """Builds tf graph for prediction.
@@ -427,8 +649,6 @@ class Model(ModelBase):
     options = self._model_proto
     is_training = self._is_training
 
-    # Gather image and proposals.
-
     (inputs, num_proposals,
      proposals) = (examples[InputDataFields.image],
                    examples[InputDataFields.num_proposals],
@@ -437,34 +657,6 @@ class Model(ModelBase):
     tf.summary.image('inputs', inputs, max_outputs=10)
     model_utils.visl_proposals(
         inputs, num_proposals, proposals, name='proposals', top_k=100)
-
-    # Gather in-batch captions.
-
-    (image_id, num_captions, caption_strings,
-     caption_lengths) = (examples[InputDataFields.image_id],
-                         examples[InputDataFields.num_captions],
-                         examples[InputDataFields.caption_strings],
-                         examples[InputDataFields.caption_lengths])
-    image_id = tf.string_to_number(image_id, out_type=tf.int64)
-
-    batch = utils.get_tensor_shape(image_id)[0]
-    caption_indices0 = tf.range(batch, dtype=tf.int32)
-    caption_indices1 = tf.mod(
-        tf.random_uniform([batch], maxval=9999, dtype=tf.int32), num_captions)
-    caption_indices = tf.stack([caption_indices0, caption_indices1], axis=-1)
-
-    (caption_strings,
-     caption_lengths) = (tf.gather_nd(caption_strings, caption_indices),
-                         tf.gather_nd(caption_lengths, caption_indices))
-
-    # Word embedding
-
-    caption_features = self._extract_text_feature(
-        caption_strings,
-        caption_lengths,
-        vocabulary_list=self._open_vocabulary_list,
-        embedding_dims=options.embedding_dims,
-        trainable=options.train_word_embedding)
 
     # FRCNN.
 
@@ -478,7 +670,7 @@ class Model(ModelBase):
     predictions = {}
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       for i in range(options.oicr_iterations):
-        predictions[NOD3Predictions.oicr_proposal_scores + '_at_{}'.format(
+        predictions[NOD5Predictions.oicr_proposal_scores + '_at_{}'.format(
             i + 1)] = proposal_scores = slim.fully_connected(
                 proposal_features,
                 num_outputs=1 + self._num_classes,
@@ -493,44 +685,20 @@ class Model(ModelBase):
            proposals, proposal_scores, {'proposal_features': proposal_features})
       proposal_features = additional_fields['proposal_features']
 
-    # Build MIDN network, for both image and text.
-    #   class_logits shape = [batch, num_classes]
-    #   proposal_scores shape = [batch, max_num_proposals, num_classes].
+    # Build MIDN network.
     #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
 
-    assert options.attention_type == nod3_model_pb2.NOD3Model.PER_CLASS
-
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      (midn_class_logits, midn_proposal_scores,
-       midn_proba_r_given_c) = self._build_midn_network(
-           num_proposals,
-           proposal_features,
-           num_classes=self._num_classes,
-           name_scope='image_midn',
-           var_scope='image_midn')
-
-    with slim.arg_scope(
-        build_hyperparams(options.text_fc_hyperparams, is_training)):
-      (text_class_logits, text_proposal_scores,
-       text_proba_r_given_c) = self._build_midn_network(
-           caption_lengths,
-           caption_features,
-           num_classes=self._num_classes,
-           name_scope='text_midn',
-           var_scope='text_midn')
-
-    # Compute image-text similarity.
-
-    tf.summary.histogram('triplet/image_logits', midn_class_logits)
-    tf.summary.histogram('triplet/text_logits', text_class_logits)
-
-    with tf.name_scope('calc_cross_modal_similarity'):
-      similarity = model_utils.calc_pairwise_similarity(
-          feature_a=midn_class_logits,
-          feature_b=text_class_logits,
-          l2_normalize=True,
-          dropout_keep_prob=options.cross_modal_dropout_keep_prob,
-          is_training=is_training)
+      if options.attention_type == nod5_model_pb2.NOD5Model.PER_CLASS:
+        (midn_class_logits, midn_proposal_scores,
+         midn_proba_r_given_c) = self._build_midn_network(
+             num_proposals, proposal_features, num_classes=self._num_classes)
+      elif options.attention_type == nod5_model_pb2.NOD5Model.PER_CLASS_TANH:
+        (midn_class_logits, midn_proposal_scores,
+         midn_proba_r_given_c) = self._build_midn_network_tanh(
+             num_proposals, proposal_features, num_classes=self._num_classes)
+      else:
+        raise ValueError('Invalid attention type.')
 
     predictions.update({
         DetectionResultFields.class_labels:
@@ -539,21 +707,27 @@ class Model(ModelBase):
         num_proposals,
         DetectionResultFields.proposal_boxes:
         proposals,
-        NOD3Predictions.midn_class_logits:
+        NOD5Predictions.midn_class_logits:
         midn_class_logits,
-        NOD3Predictions.midn_proba_r_given_c:
+        NOD5Predictions.midn_proba_r_given_c:
         midn_proba_r_given_c,
-        NOD3Predictions.oicr_proposal_scores + '_at_0':
-        midn_proposal_scores,
-        NOD3Predictions.training_only_caption_strings:
-        caption_strings,
-        NOD3Predictions.training_only_caption_lengths:
-        caption_lengths,
-        NOD3Predictions.image_id:
-        image_id,
-        NOD3Predictions.similarity:
-        similarity,
+        NOD5Predictions.oicr_proposal_scores + '_at_0':
+        midn_proposal_scores
     })
+
+    if options.label_strategem in [
+        nod5_model_pb2.NOD5Model.PREDICT_WITH_CAPTION_EXACTLY_MATCH,
+        nod5_model_pb2.NOD5Model.PREDICT_WITH_GROUND_TRUTH_OBJECTS
+    ]:
+      predicted_logits = self._build_object_prediction_network(
+          texts=examples[InputDataFields.concat_caption_string],
+          text_lengths=examples[InputDataFields.concat_caption_length],
+          open_vocabulary_list=self._open_vocabulary_list,
+          embedding_dims=options.embedding_dims)
+
+      predictions.update({
+          NOD5Predictions.predicted_logits: predicted_logits,
+      })
 
     # Post process to get final predictions.
 
@@ -596,7 +770,7 @@ class Model(ModelBase):
         predictions = self._build_prediction(examples, post_process=False)
 
       for i in range(1 + options.oicr_iterations):
-        proposals_scores = predictions[NOD3Predictions.oicr_proposal_scores +
+        proposals_scores = predictions[NOD5Predictions.oicr_proposal_scores +
                                        '_at_{}'.format(i)]
         proposal_scores_list[i].append(proposals_scores)
 
@@ -608,7 +782,7 @@ class Model(ModelBase):
     for i in range(1 + options.oicr_iterations):
       proposal_scores = tf.stack(proposal_scores_list[i], axis=-1)
       proposal_scores = tf.reduce_mean(proposal_scores, axis=-1)
-      predictions_aggregated[NOD3Predictions.oicr_proposal_scores +
+      predictions_aggregated[NOD5Predictions.oicr_proposal_scores +
                              '_at_{}'.format(i)] = proposal_scores
 
     predictions_aggregated.update(
@@ -655,22 +829,76 @@ class Model(ModelBase):
 
       # Extract image-level labels.
 
-      labels = self._extract_class_label(
-          class_texts=slim.flatten(
-              predictions[NOD3Predictions.training_only_caption_strings]),
-          vocabulary_list=self._vocabulary_list)
+      assert options.caption_as_label
 
-      # A prediction model from caption to class
+      vocabulary_list = self._vocabulary_list
+      mapping = {
+          'traffic light': 'stoplight',
+          'fire hydrant': 'hydrant',
+          'stop sign': 'sign',
+          'parking meter': 'meter',
+          'sports ball': 'ball',
+          'baseball bat': 'bat',
+          'baseball glove': 'glove',
+          'tennis racket': 'racket',
+          'wine glass': 'wineglass',
+          'hot dog': 'hotdog',
+          'potted plant': 'plant',
+          'dining table': 'table',
+          'cell phone': 'cellphone',
+          'teddy bear': 'teddy',
+          'hair drier': 'hairdryer',
+      }
+      vocabulary_list = [mapping.get(cls, cls) for cls in vocabulary_list]
+
+      labels_gt = self._extract_class_label(
+          class_texts=slim.flatten(examples[InputDataFields.caption_strings]),
+          vocabulary_list=vocabulary_list)
+
+      if options.label_strategem == nod5_model_pb2.NOD5Model.EXACTLY_MATCH:
+        labels = labels_gt
+      elif options.label_strategem == nod5_model_pb2.NOD5Model.W2V_SYNONYM_MATCH:
+        labels_ps = self._extract_pseudo_label(
+            texts=slim.flatten(examples[InputDataFields.caption_strings]),
+            vocabulary_list=vocabulary_list,
+            open_vocabulary_list=self._open_vocabulary_list,
+            embedding_dims=options.embedding_dims)
+        select_op = tf.reduce_any(labels_gt > 0, axis=-1)
+        labels = tf.where(select_op, labels_gt, labels_ps)
+      elif options.label_strategem == nod5_model_pb2.NOD5Model.PREDICT_WITH_CAPTION_EXACTLY_MATCH:
+        predicted_logits = predictions[NOD5Predictions.predicted_logits]
+        losses = tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=labels_gt, logits=predicted_logits)
+
+        loss_dict["object_prediction_loss"] = tf.reduce_mean(
+            tf.reduce_sum(losses, axis=-1))
+
+        labels = tf.stop_gradient(tf.nn.sigmoid(predicted_logits))
+      elif options.label_strategem == nod5_model_pb2.NOD5Model.PREDICT_WITH_GROUND_TRUTH_OBJECTS:
+        labels_from_objects = self._extract_class_label(
+            class_texts=slim.flatten(examples[InputDataFields.object_texts]),
+            vocabulary_list=vocabulary_list)
+        predicted_logits = predictions[NOD5Predictions.predicted_logits]
+        losses = tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=labels_from_objects, logits=predicted_logits)
+
+        loss_dict["object_prediction_loss"] = tf.reduce_mean(
+            tf.reduce_sum(losses, axis=-1))
+
+        labels = tf.stop_gradient(tf.nn.sigmoid(predicted_logits))
+
+      else:
+        raise ValueError('Invalid label strategy')
 
       # Loss of the multi-instance detection network.
 
-      midn_class_logits = predictions[NOD3Predictions.midn_class_logits]
+      midn_class_logits = predictions[NOD5Predictions.midn_class_logits]
       losses = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=labels, logits=midn_class_logits)
 
       # Hard-negative mining.
 
-      if options.midn_loss_negative_mining == nod3_model_pb2.NOD3Model.NONE:
+      if options.midn_loss_negative_mining == nod5_model_pb2.NOD5Model.NONE:
         if options.classification_loss_use_sum:
           assert False
           loss_dict['midn_cross_entropy_loss'] = tf.multiply(
@@ -687,64 +915,13 @@ class Model(ModelBase):
           else:
             loss_dict['midn_cross_entropy_loss'] = tf.multiply(
                 tf.reduce_mean(losses), options.midn_loss_weight)
-      elif options.midn_loss_negative_mining == nod3_model_pb2.NOD3Model.HARDEST:
+      elif options.midn_loss_negative_mining == nod5_model_pb2.NOD5Model.HARDEST:
         assert False
         loss_masks = self._midn_loss_mine_hardest_negative(labels, losses)
         loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(
             utils.masked_avg(data=losses, mask=loss_masks, dim=1))
       else:
         raise ValueError('Invalid negative mining method.')
-
-      # Triplet loss
-      if options.triplet_loss_weight > 0:
-        (image_id, image_ids_gathered,
-         similarity) = (predictions[NOD3Predictions.image_id],
-                        predictions[NOD3Predictions.image_id],
-                        predictions[NOD3Predictions.similarity])
-
-        distance = 1.0 - similarity
-        pos_mask = tf.cast(
-            tf.equal(
-                tf.expand_dims(image_id, axis=1),
-                tf.expand_dims(image_ids_gathered, axis=0)), tf.float32)
-        neg_mask = 1.0 - pos_mask
-        distance_ap = utils.masked_maximum(distance, pos_mask)
-
-        if options.triplet_loss_use_semihard:
-
-          # Use the semihard.
-
-          # negatives_outside: smallest D_an where D_an > D_ap.
-
-          mask = tf.cast(tf.greater(distance, distance_ap), tf.float32)
-          mask = mask * neg_mask
-          negatives_outside = utils.masked_minimum(distance, mask)
-
-          # negatives_inside: largest D_an.
-
-          negatives_inside = utils.masked_maximum(distance, neg_mask)
-
-          # distance_an: the semihard negatives.
-
-          mask_condition = tf.greater(
-              tf.reduce_sum(mask, axis=1, keepdims=True), 0.0)
-
-          distance_an = tf.where(mask_condition, negatives_outside,
-                                 negatives_inside)
-
-        else:
-
-          # Use the hardest.
-
-          distance_an = utils.masked_minimum(distance, neg_mask)
-
-        losses = tf.maximum(distance_ap - distance_an + options.triplet_loss_margin,
-                            0)
-
-        num_loss_examples = tf.count_nonzero(losses, dtype=tf.float32)
-        triplet_loss = tf.reduce_mean(losses)
-
-        loss_dict['triplet_loss'] = tf.multiply(triplet_loss, options.triplet_loss_weight)
 
       # Losses of the online instance classifier refinement network.
 
@@ -753,10 +930,10 @@ class Model(ModelBase):
                      predictions[DetectionResultFields.proposal_boxes])
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposals)
 
-      proposal_scores_0 = predictions[NOD3Predictions.oicr_proposal_scores +
+      proposal_scores_0 = predictions[NOD5Predictions.oicr_proposal_scores +
                                       '_at_0']
       if options.oicr_use_proba_r_given_c:
-        proposal_scores_0 = predictions[NOD3Predictions.midn_proba_r_given_c]
+        proposal_scores_0 = predictions[NOD5Predictions.midn_proba_r_given_c]
 
       proposal_scores_0 = tf.concat(
           [tf.fill([batch, max_num_proposals, 1], 0.0), proposal_scores_0],
@@ -767,7 +944,7 @@ class Model(ModelBase):
                                tf.float32)
 
       for i in range(options.oicr_iterations):
-        proposal_scores_1 = predictions[NOD3Predictions.oicr_proposal_scores +
+        proposal_scores_1 = predictions[NOD5Predictions.oicr_proposal_scores +
                                         '_at_{}'.format(i + 1)]
         oicr_cross_entropy_loss_at_i = model_utils.calc_oicr_loss(
             labels,
@@ -787,7 +964,7 @@ class Model(ModelBase):
 
       mask = tf.sequence_mask(
           num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-      proba_r_given_c = predictions[NOD3Predictions.midn_proba_r_given_c]
+      proba_r_given_c = predictions[NOD5Predictions.midn_proba_r_given_c]
       losses = tf.log(proba_r_given_c + _EPSILON)
       losses = tf.squeeze(
           utils.masked_sum_nd(data=losses, mask=mask, dim=1), axis=1)
@@ -800,8 +977,6 @@ class Model(ModelBase):
               data=proba_r_given_c, mask=tf.expand_dims(mask, -1), dim=1))
       tf.losses.add_loss(min_entropy_loss)
 
-    if options.triplet_loss_weight > 0:
-      tf.summary.scalar('loss/num_loss_examples', num_loss_examples)
     tf.summary.scalar('loss/min_entropy_loss', min_entropy_loss)
     tf.summary.scalar('loss/max_proba', max_proba)
 

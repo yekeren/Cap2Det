@@ -2,7 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
 import tensorflow as tf
+
 from core import utils
 
 
@@ -148,7 +150,7 @@ class UtilsTest(tf.test.TestCase):
               data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
               mask: [[1, 0, 1], [0, 1, 0]]
           })
-      self.assertAllClose(result, [[[6,  8]], [[9, 10]]])
+      self.assertAllClose(result, [[[6, 8]], [[9, 10]]])
 
   def test_masked_avg_nd(self):
     tf.reset_default_graph()
@@ -164,7 +166,7 @@ class UtilsTest(tf.test.TestCase):
               data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
               mask: [[1, 0, 1], [0, 1, 0]]
           })
-      self.assertAllClose(result, [[[3,  4]], [[9, 10]]])
+      self.assertAllClose(result, [[[3, 4]], [[9, 10]]])
 
       result = sess.run(
           masked_avgs,
@@ -172,7 +174,7 @@ class UtilsTest(tf.test.TestCase):
               data: [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]],
               mask: [[0, 0, 0], [0, 0, 0]]
           })
-      self.assertAllClose(result, [[[0,  0]], [[0, 0]]])
+      self.assertAllClose(result, [[[0, 0]], [[0, 0]]])
 
   def test_masked_softmax(self):
     tf.reset_default_graph()
@@ -198,6 +200,19 @@ class UtilsTest(tf.test.TestCase):
               mask: [[1, 1, 0, 0], [0, 0, 1, 1]]
           })
       self.assertAllClose(result, [[0.5, 0.5, 0.0, 0.0], [0.0, 0.0, 0.5, 0.5]])
+
+  def test_covariance(self):
+    tf.reset_default_graph()
+
+    x = tf.placeholder(tf.float32, shape=[None, None])
+    cov = utils.covariance(x)
+
+    data = np.array([[1, 4, 2], [5, 6, 24], [15, 1, 5], [7, 3, 8], [9, 4, 7]],
+                    dtype=np.float32)
+    with self.test_session() as sess:
+      cov = sess.run(cov, feed_dict={x: data})
+
+    self.assertAllClose(cov, np.cov(data, bias=True))
 
 
 if __name__ == '__main__':

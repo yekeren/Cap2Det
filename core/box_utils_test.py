@@ -8,6 +8,27 @@ import box_utils
 
 class BoxUtilsTest(tf.test.TestCase):
 
+  def testScaleToNewSize(self):
+    """Test scale_to_new_size."""
+    tf.reset_default_graph()
+    box = tf.placeholder(dtype=tf.float32, shape=[None, 4])
+    img_shape = tf.placeholder(dtype=tf.int32, shape=[2])
+    pad_shape = tf.placeholder(dtype=tf.int32, shape=[2])
+    box_scaled = box_utils.scale_to_new_size(box, img_shape, pad_shape)
+
+    with self.test_session() as sess:
+      box_scaled = sess.run(
+          box_scaled,
+          feed_dict={
+              box: [[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 0.5, 1.0],
+                    [0.0, 0.0, 0.5, 0.5]],
+              img_shape: [1, 1],
+              pad_shape: [2, 1],
+          })
+      self.assertAllClose(
+          box_scaled,
+          [[0.0, 0.0, 0.5, 1.0], [0.0, 0.0, 0.25, 1.0], [0.0, 0.0, 0.25, 0.5]])
+
   def testFlipLeftRight(self):
     """Test flip_left_right."""
     tf.reset_default_graph()

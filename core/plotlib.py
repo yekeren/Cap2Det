@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import functools
+import base64
 
 from core import utils
 
@@ -23,7 +24,15 @@ _FONTFACE = cv2.FONT_HERSHEY_COMPLEX_SMALL
 # NOTE: THE DEFAULT CHANNEL ORDER IS RGB.
 
 
-def _py_convert_to_heatmap(image, normalize=True, normalize_to=None):
+def _py_convert_to_base64(image, ext='.jpg', quality=90):
+  encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+  _, encoded = cv2.imencode(ext, image, encode_param)
+  return base64.encodestring(encoded.tostring()).decode('utf8').replace(
+      '\n', '')
+
+
+def _py_convert_to_heatmap(image, normalize=True, normalize_to=None,
+                           cmap=_CMAP):
   """Converts single-channel image to heat-map image.
 
   Args:
@@ -43,7 +52,7 @@ def _py_convert_to_heatmap(image, normalize=True, normalize_to=None):
       image = np.minimum(image, max_v)
     image = (image - min_v) / (_SMALL_NUMBER + max_v - min_v)
 
-  cm = plt.get_cmap(_CMAP)
+  cm = plt.get_cmap(cmap)
   heatmap = cm(image)
   return heatmap[:, :, :3].astype(np.float32)
 
@@ -132,6 +141,69 @@ def _py_draw_rectangles(image,
           fontScale=fontscale,
           color=text_color,
           thickness=thickness)
+  return canvas
+
+
+def _py_draw_rectangles_v2(image,
+                           total,
+                           boxes,
+                           scores,
+                           labels,
+                           color=GREEN,
+                           thickness=1,
+                           fontscale=1.0,
+                           show_score=True):
+  """Draws boxes on the image.
+
+  Args:
+    image: a [height, width, 3] uint8 numpy array.
+    boxes: a [batch, 4] float numpy array representing normalized boxes.
+    scores: a [batch] float numpy array representing box scores.
+    labels: a [batch] string numpy array representing labels.
+    color: the color to be drawn.
+    thickness: thinkness of the line.
+    fontscale: scale of the font.
+
+  Returns:
+    canvas: a [height, width, 3] uint8 numpy array.
+  """
+  height, width, _ = image.shape
+
+  canvas = image.copy()
+  for i, (box, score, label) in enumerate(zip(boxes, scores, labels)):
+    if i >= total: break
+
+    label = label.decode('UTF8') if isinstance(label, bytes) else label
+    text = '%s: %.0lf%%' % (label, score * 100) if show_score else label
+
+    (text_w, text_h), baseline = cv2.getTextSize(text, _FONTFACE, fontscale,
+                                                 thickness)
+
+    ymin, xmin, ymax, xmax = box
+    ymin, xmin, ymax, xmax = (int(height * ymin + 0.5), int(width * xmin + 0.5),
+                              int(height * ymax + 0.5), int(width * xmax + 0.5))
+
+    cv2.rectangle(
+        canvas,
+        pt1=(xmin, ymin),
+        pt2=(xmax, ymax),
+        color=color,
+        thickness=thickness * 2)
+    cv2.rectangle(
+        canvas,
+        pt1=(xmin, ymin),
+        pt2=(xmin + 2 * thickness + text_w, ymin + 2 * thickness + text_h),
+        color=color,
+        thickness=-1)
+    text_color = BLACK if color != BLACK else WHITE
+    cv2.putText(
+        canvas,
+        text,
+        org=(xmin, ymin + text_h),
+        fontFace=_FONTFACE,
+        fontScale=fontscale,
+        color=text_color,
+        thickness=thickness)
   return canvas
 
 
@@ -300,6 +372,56 @@ def draw_rectangles(image,
 
   return tf.map_fn(
       _draw_fn, elems=[image, boxes, scores, labels], dtype=tf.uint8)
+
+
+def draw_rectangles_v2(image,
+                       total,
+                       boxes,
+                       scores,
+                       labels,
+                       color=GREEN,
+                       thickness=1,
+                       fontscale=1.0):
+  """Draws rectangle to the image.
+
+  Args:
+    image: a [batch, height, width, 3] uint8 tensor.
+    total: a [batch] int tensor denoting number of boxes for each image.
+    boxes: a [batch, num_boxes, 4] float tensor representing normalized boxes,
+      i.e.: [ymin, xmin, ymax, xmax], values are ranging from 0.0 to 1.0.
+    scores: a [batch, num_boxes] float tensor representing the scores to be
+      drawn on the image.
+    labels: a [batch, num_boxes] string or float tensor representing the labels
+      to be drawn on the image.
+    color: color to be used.
+    thickness: the line thickness.
+    fontscale: size of the font.
+
+  Returns:
+    canvas: a [batch, height, width, 3] uint8 tensor with information drawn.
+  """
+
+  def _draw_fn(inputs):
+    """Draws the box on the image.
+
+    Args:
+      image: a [height, width, 3] float tensor.
+      box: a [num_boxes, 4] float tensor representing [ymin, xmin, ymax, xmax].
+      score: a [num_boxes] float tensor representing box scores.
+      label: a [num_boxes] string tensor denoting the text to be drawn.
+
+    Returns:
+      canvas: a [height, width, 3] float tensor with box drawn.
+    """
+    image, total, boxes, scores, labels = inputs
+    canvas = tf.py_func(
+        func=lambda a, b, c, d, e: _py_draw_rectangles_v2(a, b, c, d, e, color=color, thickness=thickness, fontscale=fontscale),
+        inp=[image, total, boxes, scores, labels], Tout=tf.uint8)
+    canvas.set_shape(tf.TensorShape([None, None, 3]))
+    return canvas
+
+  return tf.map_fn(
+      _draw_fn, elems=[image, total, boxes, scores, labels], dtype=tf.uint8)
 
 
 @utils.deprecated

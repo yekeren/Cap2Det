@@ -16,6 +16,8 @@ tf.flags.DEFINE_string('glove_file', '',
 
 tf.flags.DEFINE_string('vocabulary_file', '', 'Vocabulary file to export.')
 
+tf.flags.DEFINE_string('category_file', '', 'Category file to load.')
+
 tf.flags.DEFINE_string('vocabulary_weights_file', '',
                        'Vocabulary weights file to export.')
 
@@ -24,8 +26,6 @@ tf.flags.DEFINE_integer('min_word_freq', 20, 'Minimum word frequency.')
 FLAGS = tf.flags.FLAGS
 
 tf.logging.set_verbosity(tf.logging.INFO)
-
-_INIT_WIDTH = 0.03
 
 
 def _process_caption(caption):
@@ -67,18 +67,49 @@ def _load_glove(filename):
 def main(_):
   with tf.gfile.GFile(FLAGS.train_caption_annotations_file, 'r') as cap_fid:
     caption_groundtruth_data = json.load(cap_fid)
-
   assert 'annotations' in caption_groundtruth_data
+
+  mapping = {
+      'traffic light': 'stoplight',
+      'fire hydrant': 'hydrant',
+      'stop sign': 'sign',
+      'parking meter': 'meter',
+      'sports ball': 'ball',
+      'baseball bat': 'bat',
+      'baseball glove': 'glove',
+      'tennis racket': 'racket',
+      'wine glass': 'wineglass',
+      'hot dog': 'hotdog',
+      'potted plant': 'plant',
+      'dining table': 'table',
+      'cell phone': 'cellphone',
+      'teddy bear': 'teddy',
+      'hair drier': 'hairdryer',
+  }
+  with open(FLAGS.category_file, 'r') as fid:
+    categories = [x.strip('\n') for x in fid.readlines()]
+    categories = set([mapping.get(x, x) for x in categories])
+
+  glove = _load_glove(FLAGS.glove_file)
 
   # Compute word frequency and filter out rare words.
 
+  total_bingo = 0
   word_freq = collections.Counter()
   for annotation in caption_groundtruth_data['annotations']:
+
+    bingo = 0
     for word in _process_caption(annotation['caption']):
       word_freq[word] += 1
+      if word in categories:
+        bingo = 1
+    total_bingo += bingo
+  tf.logging.info('Recalled %i / %i captions.', total_bingo,
+                  len(caption_groundtruth_data['annotations']))
 
   word_freq = [
-      x for x in word_freq.most_common() if x[1] >= FLAGS.min_word_freq
+      x for x in word_freq.most_common()
+      if x[1] >= FLAGS.min_word_freq and x[0] in glove
   ]
   with tf.gfile.GFile(FLAGS.vocabulary_file, 'w') as fp:
     for word, freq in word_freq:
@@ -86,17 +117,10 @@ def main(_):
 
   # Generate initial word embeddings.
 
-  glove = _load_glove(FLAGS.glove_file)
-  dims = glove['the'].shape[0]
-
   unk, embeddings = 0, []
   for word, freq in word_freq:
-    if word in glove:
-      embeddings.append(glove[word])
-    else:
-      unk += 1
-      tf.logging.warning('Unknown word %s.', word)
-      embeddings.append(_INIT_WIDTH * (np.random.rand(dims) * 2 - 1))
+    assert word in glove
+    embeddings.append(glove[word])
   embeddings = np.stack(embeddings, axis=0)
 
   with tf.gfile.GFile(FLAGS.vocabulary_weights_file, 'wb') as fp:

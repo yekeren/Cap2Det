@@ -295,3 +295,59 @@ def resize_image_to_max_dimension(image,
       new_image.set_shape([max_dimension, max_dimension, 3])
 
     return new_image, new_size
+
+
+def resize_image_to_min_dimension(image,
+                                  min_dimension=None,
+                                  method=tf.image.ResizeMethod.BILINEAR,
+                                  align_corners=False,
+                                  per_channel_pad_value=(0, 0, 0)):
+  """Resizes an image so its dimensions are within the provided value.
+
+  Args:
+    image: A 3D tensor of shape [height, width, channels]
+    min_dimension: (optional) (scalar) minimum allowed size
+      of the larger image dimension.
+    method: (optional) interpolation method used in resizing. Defaults to
+      BILINEAR.
+    align_corners: bool. If true, exactly align all 4 corners of the input
+      and output. Defaults to False.
+    per_channel_pad_value: A tuple of per-channel scalar value to use for
+      padding. By default pads zeros.
+
+  Returns:
+    resized_image: A 3D tensor of shape [new_height, new_width, channels],
+      where the image has been resized (with bilinear interpolation) so that
+      min(new_height, new_width) == min_dimension.
+    resized_image_shape: A 1D tensor of shape [3] containing shape of the
+      resized image.
+
+  Raises:
+    ValueError: if the image is not a 3D tensor.
+  """
+
+  def _compute_new_dynamic_size(image, min_dimension):
+    """Compute new dynamic shape for resize_image_to_min_dimesion method."""
+
+    image_shape = tf.shape(image)
+    orig_height = tf.to_float(image_shape[0])
+    orig_width = tf.to_float(image_shape[1])
+
+    orig_min_dim = tf.minimum(orig_height, orig_width)
+    scale_factor = tf.cast(min_dimension, dtype=tf.float32) / orig_min_dim
+
+    new_height = tf.to_int32(tf.round(orig_height * scale_factor))
+    new_width = tf.to_int32(tf.round(orig_width * scale_factor))
+    new_size = tf.stack([new_height, new_width, image_shape[2]])
+
+    return new_size
+
+  if len(image.get_shape()) != 3:
+    raise ValueError('Image should be 3D tensor')
+
+  with tf.name_scope("resize_image_to_range"):
+    new_size = _compute_new_dynamic_size(image, min_dimension)
+    new_image = tf.image.resize_images(
+        image, new_size[:-1], method=method, align_corners=align_corners)
+
+    return new_image, new_size

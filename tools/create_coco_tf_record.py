@@ -44,6 +44,7 @@ import zipfile
 
 from pycocotools import mask
 import tensorflow as tf
+import collections
 
 from object_detection.dataset_tools import tf_record_creation_util
 from object_detection.utils import dataset_util
@@ -67,11 +68,16 @@ tf.flags.DEFINE_string('val_caption_annotations_file', '',
 tf.flags.DEFINE_string('testdev_annotations_file', '',
                        'Test-dev annotations JSON file.')
 tf.flags.DEFINE_string('output_dir', 'output/', 'Output data directory.')
+tf.flags.DEFINE_string('proposal_data', 'raw_data/coco_ssbox_quality',
+                       'Directory to the proposal data.')
+flags.DEFINE_boolean('normalize_oicr', False, 'Whether to normalize_oicr boxes')
+flags.DEFINE_boolean('filter_pascal', False, 'Whether to normalize_oicr boxes')
 
 FLAGS = flags.FLAGS
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+counter = collections.defaultdict(int)
 
 def _process_caption(caption):
   """Processes a caption string into a list of tonenized words.
@@ -89,7 +95,8 @@ def create_tf_example(image,
                       caption_annotations_list,
                       zip_handler,
                       category_index,
-                      include_masks=False):
+                      include_masks=False,
+                      sub_dir=None):
   """Converts image and annotations to a tf.Example proto.
 
   Args:
@@ -127,15 +134,41 @@ def create_tf_example(image,
   filename = image['file_name']
   image_id = image['id']
 
+  # For 2014 data:
   # Read from ZIP file.
   # Extract sub_dir of 'train2014' from 'COCO_train2014_000000467840.jpg'.
 
-  sub_dir = filename.split('_')[1]
+  # sub_dir = filename.split('_')[1]
+  # with zip_handler.open(sub_dir + '/' + filename, "r") as fid:
+  #   encoded_jpg = fid.read()
+
+  # For 2017 data:
+  # Read from ZIP file.
+  # Add sub_dir of 'train2017' for '000000467840.jpg'.
+
   with zip_handler.open(sub_dir + '/' + filename, "r") as fid:
     encoded_jpg = fid.read()
+
   encoded_jpg_io = io.BytesIO(encoded_jpg)
   image = PIL.Image.open(encoded_jpg_io)
   key = hashlib.sha256(encoded_jpg).hexdigest()
+
+  npy_path= os.path.join(FLAGS.proposal_data, '{}/{}.npy'.format(image_id % 10, image_id))
+
+  with open(npy_path, 'rb') as fid:
+    #proposals = np.load(fid)[:2000, :]
+    proposals = np.load(fid)
+
+  if FLAGS.normalize_oicr:
+    ymin, xmin, ymax, xmax = [proposals[:, i] for i in range(4)]
+    ymin = ymin / height
+    xmin = xmin / width
+    ymax = ymax / height
+    xmax = xmax / width
+    proposals = np.stack([ymin, xmin, ymax, xmax], axis=-1)
+
+  #if proposals.shape[0] < 2000:
+  #  tf.logging.info(proposals.shape)
 
   xmin = []
   xmax = []
@@ -176,35 +209,96 @@ def create_tf_example(image,
       pil_image.save(output_io, format='PNG')
       encoded_mask_png.append(output_io.getvalue())
 
-  caption_string = []
-  caption_offset = []
-  caption_length = []
-  for caption_annotations in caption_annotations_list:
-    caption = _process_caption(caption_annotations['caption'])
-    caption_offset.append(len(caption_string))
-    caption_length.append(len(caption))
-    caption_string.extend(caption)
-  caption_string = [caption.encode('utf8') for caption in caption_string]
+  global counter
+  if FLAGS.filter_pascal:
+    name_map = {
+        b'airplane': b'aeroplane',
+        b'bicycle': b'bicycle',
+        b'bird': b'bird',
+        b'boat': b'boat',
+        b'bottle': b'bottle',
+        b'bus': b'bus',
+        b'car': b'car',
+        b'cat': b'cat',
+        b'chair': b'chair',
+        b'cow': b'cow',
+        b'dining table': b'diningtable',
+        b'dog': b'dog',
+        b'horse': b'horse',
+        b'motorcycle': b'motorbike',
+        b'person': b'person',
+        b'potted plant': b'pottedplant',
+        b'sheep': b'sheep',
+        b'couch': b'sofa',
+        b'train': b'train',
+        b'tv': b'tvmonitor',
+        }
+    category_names = [name_map[name] for name in category_names if name in name_map]
+
+    for name in category_names:
+      counter[name] += 1
+    caption_string = category_names
+    caption_offset = [0]
+    caption_length = [len(category_names)]
+
+    if len(category_names) == 0:
+      return None, None, None
+  else:
+    caption_string = []
+    caption_offset = []
+    caption_length = []
+    for caption_annotations in caption_annotations_list:
+      caption = _process_caption(caption_annotations['caption'])
+      caption_offset.append(len(caption_string))
+      caption_length.append(len(caption))
+      caption_string.extend(caption)
+    caption_string = [caption.encode('utf8') for caption in caption_string]
 
   feature_dict = {
-      'image/height': dataset_util.int64_feature(image_height),
-      'image/width': dataset_util.int64_feature(image_width),
-      'image/filename': dataset_util.bytes_feature(filename.encode('utf8')),
-      'image/source_id': dataset_util.bytes_feature(
-          str(image_id).encode('utf8')),
-      'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
-      'image/encoded': dataset_util.bytes_feature(encoded_jpg),
-      'image/format': dataset_util.bytes_feature('jpeg'.encode('utf8')),
-      'image/object/bbox/xmin': dataset_util.float_list_feature(xmin),
-      'image/object/bbox/xmax': dataset_util.float_list_feature(xmax),
-      'image/object/bbox/ymin': dataset_util.float_list_feature(ymin),
-      'image/object/bbox/ymax': dataset_util.float_list_feature(ymax),
-      'image/object/class/label': dataset_util.int64_list_feature(category_ids),
-      'image/object/is_crowd': dataset_util.int64_list_feature(is_crowd),
-      'image/object/area': dataset_util.float_list_feature(area),
-      'image/caption/string': dataset_util.bytes_list_feature(caption_string),
-      'image/caption/offset': dataset_util.int64_list_feature(caption_offset),
-      'image/caption/length': dataset_util.int64_list_feature(caption_length),
+      'image/height':
+      dataset_util.int64_feature(image_height),
+      'image/width':
+      dataset_util.int64_feature(image_width),
+      'image/filename':
+      dataset_util.bytes_feature(filename.encode('utf8')),
+      'image/source_id':
+      dataset_util.bytes_feature(str(image_id).encode('utf8')),
+      'image/key/sha256':
+      dataset_util.bytes_feature(key.encode('utf8')),
+      'image/encoded':
+      dataset_util.bytes_feature(encoded_jpg),
+      'image/format':
+      dataset_util.bytes_feature('jpeg'.encode('utf8')),
+      'image/object/bbox/xmin':
+      dataset_util.float_list_feature(xmin),
+      'image/object/bbox/xmax':
+      dataset_util.float_list_feature(xmax),
+      'image/object/bbox/ymin':
+      dataset_util.float_list_feature(ymin),
+      'image/object/bbox/ymax':
+      dataset_util.float_list_feature(ymax),
+      'image/object/class/label':
+      dataset_util.int64_list_feature(category_ids),
+      'image/object/class/text':
+      dataset_util.bytes_list_feature(category_names),
+      'image/object/is_crowd':
+      dataset_util.int64_list_feature(is_crowd),
+      'image/object/area':
+      dataset_util.float_list_feature(area),
+      'image/caption/string':
+      dataset_util.bytes_list_feature(caption_string),
+      'image/caption/offset':
+      dataset_util.int64_list_feature(caption_offset),
+      'image/caption/length':
+      dataset_util.int64_list_feature(caption_length),
+      'image/proposal/bbox/ymin':
+      dataset_util.float_list_feature(proposals[:, 0].tolist()),
+      'image/proposal/bbox/xmin':
+      dataset_util.float_list_feature(proposals[:, 1].tolist()),
+      'image/proposal/bbox/ymax':
+      dataset_util.float_list_feature(proposals[:, 2].tolist()),
+      'image/proposal/bbox/xmax':
+      dataset_util.float_list_feature(proposals[:, 3].tolist()),
   }
   if include_masks:
     feature_dict['image/object/mask'] = (
@@ -215,7 +309,7 @@ def create_tf_example(image,
 
 def _create_tf_record_from_coco_annotations(
     annotations_file, caption_annotations_file, zip_file, output_path,
-    include_masks, num_shards):
+    include_masks, num_shards, subdir=None):
   """Loads COCO annotation json files and converts to tf.Record format.
 
   Args:
@@ -288,10 +382,13 @@ def _create_tf_record_from_coco_annotations(
         caption_annotations_list = caption_annotations_index[image['id']]
         _, tf_example, num_annotations_skipped = create_tf_example(
             image, annotations_list, caption_annotations_list, zip_handler,
-            category_index, include_masks)
-        total_num_annotations_skipped += num_annotations_skipped
-        shard_idx = idx % num_shards
-        output_tfrecords[shard_idx].write(tf_example.SerializeToString())
+            category_index, include_masks, subdir)
+        if tf_example is not None:
+          total_num_annotations_skipped += num_annotations_skipped
+          shard_idx = idx % num_shards
+          output_tfrecords[shard_idx].write(tf_example.SerializeToString())
+        else:
+          tf.logging.info('Filtered by pascal classes.')
       tf.logging.info('Finished writing, skipped %d annotations.',
                       total_num_annotations_skipped)
 
@@ -306,31 +403,34 @@ def main(_):
 
   if not tf.gfile.IsDirectory(FLAGS.output_dir):
     tf.gfile.MakeDirs(FLAGS.output_dir)
-  train_output_path = os.path.join(FLAGS.output_dir, 'coco_train.record')
-  val_output_path = os.path.join(FLAGS.output_dir, 'coco_val.record')
-  testdev_output_path = os.path.join(FLAGS.output_dir, 'coco_testdev.record')
+  train_output_path = os.path.join(FLAGS.output_dir, 'coco17_train.record')
+  val_output_path = os.path.join(FLAGS.output_dir, 'coco17_val.record')
+  testdev_output_path = os.path.join(FLAGS.output_dir, 'coco17_testdev.record')
 
+  #_create_tf_record_from_coco_annotations(
+  #    FLAGS.train_annotations_file,
+  #    FLAGS.train_caption_annotations_file,
+  #    FLAGS.train_image_file,
+  #    train_output_path,
+  #    FLAGS.include_masks,
+  #    num_shards=100,
+  #    subdir='train2017')
+  #_create_tf_record_from_coco_annotations(
+  #    FLAGS.val_annotations_file,
+  #    FLAGS.val_caption_annotations_file,
+  #    FLAGS.val_image_file,
+  #    val_output_path,
+  #    FLAGS.include_masks,
+  #    num_shards=5,
+  #    subdir='val2017')
   _create_tf_record_from_coco_annotations(
-      FLAGS.train_annotations_file,
-      FLAGS.train_caption_annotations_file,
-      FLAGS.train_image_file,
-      train_output_path,
+      FLAGS.testdev_annotations_file,
+      None,
+      FLAGS.test_image_file,
+      testdev_output_path,
       FLAGS.include_masks,
-      num_shards=100)
-  _create_tf_record_from_coco_annotations(
-      FLAGS.val_annotations_file,
-      FLAGS.val_caption_annotations_file,
-      FLAGS.val_image_file,
-      val_output_path,
-      FLAGS.include_masks,
-      num_shards=50)
-  # _create_tf_record_from_coco_annotations(
-  #     FLAGS.testdev_annotations_file,
-  #     None,
-  #     FLAGS.test_image_file,
-  #     testdev_output_path,
-  #     FLAGS.include_masks,
-  #     num_shards=100)
+      num_shards=50,
+      subdir='test2017')
 
 
 if __name__ == '__main__':

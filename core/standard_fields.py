@@ -68,12 +68,23 @@ class InputDataFields(object):
   """Names of the input tensors."""
   image = "image"
   image_id = "image_id"
+
+  # image_height / image_width denote the original image shape.
+
+  image_height = "image_height"
+  image_width = "image_width"
+
+  # image_shape in the batch.
+
   image_shape = "image_shape"
 
   num_captions = "num_captions"
   caption_strings = "caption_strings"
   caption_lengths = "caption_lengths"
   category_strings = "caption_strings"
+
+  concat_caption_string = "concat_caption_string"
+  concat_caption_length = "concat_caption_length"
 
   num_objects = 'number_of_objects'
   object_boxes = 'object_boxes'
@@ -87,11 +98,14 @@ class DetectionResultFields(object):
   """Names of the output detection tensors."""
   num_proposals = 'num_proposals'
   proposal_boxes = 'proposal_boxes'
+  proposal_scores = 'proposal_scores'
+
+  class_labels = 'class_labels'
 
   num_detections = 'num_detections'
   detection_boxes = 'detection_boxes'
-  detection_scores= 'detection_scores'
-  detection_classes= 'detection_classes'
+  detection_scores = 'detection_scores'
+  detection_classes = 'detection_classes'
 
 
 class GAPPredictionTasks(object):
@@ -167,6 +181,119 @@ class CAMPredictions(object):
   proposal_scores = "proposal_scores"
 
 
+class StackedAttnPredictions(object):
+  logits = 'logits'
+
+
+class NODPredictions(object):
+  """Predictions in the NOD model."""
+  midn_class_scores = 'midn_class_scores'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+
+class NOD2Predictions(object):
+  """Predictions in the NOD model."""
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+
+class NOD3Predictions(object):
+  """Predictions in the NOD model."""
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+  training_only_caption_strings = 'train_only_caption_strings'
+  training_only_caption_lengths = 'train_only_caption_lengths'
+
+  image_id = 'image_id'
+  similarity = 'similarity'
+
+
+class NOD4Predictions(object):
+  """Predictions in the NOD model."""
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+  #training_only_caption_strings = 'train_only_caption_strings'
+  #training_only_caption_lengths = 'train_only_caption_lengths'
+
+  debug_groundtruth_labels = 'debug_groundtruth_labels'
+  debug_pseudo_labels = 'debug_pseudo_labels'
+
+  image_id = 'image_id'
+  similarity = 'similarity'
+
+
+class NOD5Predictions(object):
+  """Predictions in the NOD model."""
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+  training_only_caption_strings = 'train_only_caption_strings'
+  training_only_caption_lengths = 'train_only_caption_lengths'
+
+  image_id = 'image_id'
+  similarity = 'similarity'
+
+  predicted_logits = 'predicted_logits'
+
+
+class VisualW2vPredictions(object):
+  """Predictions in the NOD model."""
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+  image_id = 'image_id'
+  image_ids_gathered = 'image_ids_gathered'
+  similarity = 'similarity'
+  word2vec = 'word2vec'
+
+
+class TextClassificationPredictions(object):
+  """predictions in the nod model."""
+  logits = 'logits'
+  midn_class_logits = 'midn_class_logits'
+  midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'
+  midn_class_scores_softmax = 'midn_class_scores_softmax'
+  oicr_proposal_scores = 'oicr_proposal_scores'
+
+  midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_h_given_c = 'midn_proba_h_given_c'
+
+  image_id = 'image_id'
+  image_ids_gathered = 'image_ids_gathered'
+  similarity = 'similarity'
+  word2vec = 'word2vec'
+
+  vocab = 'vocab'
+
+
 class OICRTasks(object):
   """Prediction tasks of the OICR model."""
   image_label = "image_label"
@@ -183,8 +310,10 @@ class OICRVariableScopes(object):
 
 class OICRPredictions(object):
   """Predictions in the OICR model."""
+  mipn_logits = 'mipn_logits'
   midn_logits = 'midn_logits'
   midn_proba_r_given_c = 'midn_proba_r_given_c'
+  midn_proba_r_given_h = 'midn_proba_r_given_h'
   oicr_proposal_scores = 'oicr_proposal_scores'
   midn_proposal_scores = 'midn_proposal_scores'
   #class_act_map_list = "class_act_map_list"

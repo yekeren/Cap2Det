@@ -195,6 +195,28 @@ class ImgProcTest(tf.test.TestCase):
       self.assertEqual(img.shape, (800, 800, 3))
       self.assertAllEqual(img_shape, [600, 800, 3])
 
+  def test_resize_image_to_min_dimension(self):
+    tf.reset_default_graph()
+
+    image = tf.placeholder(tf.float32, shape=[None, None, 3])
+
+    resized_image = imgproc.resize_image_to_min_dimension(
+        image, min_dimension=900)
+    with self.test_session() as sess:
+      img, img_shape = sess.run(
+          resized_image, feed_dict={
+              image: np.zeros([300, 400, 3]),
+          })
+      self.assertEqual(img.shape, (900, 1200, 3))
+      self.assertAllEqual(img_shape, [900, 1200, 3])
+
+      img, img_shape = sess.run(
+          resized_image, feed_dict={
+              image: np.zeros([400, 300, 3]),
+          })
+      self.assertEqual(img.shape, (1200, 900, 3))
+      self.assertAllEqual(img_shape, [1200, 900, 3])
+
 
 #  def test_calc_box_saliency(self):
 #    tf.reset_default_graph()

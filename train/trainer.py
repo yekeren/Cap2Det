@@ -12,7 +12,7 @@ from protos import model_pb2
 from protos import pipeline_pb2
 
 from core import training_utils
-from eval_summary_saver_hook import EvalSummarySaverHook
+from train.eval_summary_saver_hook import EvalSummarySaverHook
 
 
 def _create_model_fn(pipeline_proto, is_chief=True):
@@ -66,6 +66,13 @@ def _create_model_fn(pipeline_proto, is_chief=True):
     eval_metric_ops = None
     training_hooks = []
 
+    #update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    #for op in update_ops:
+    #  if 'cnn' not in op.name:
+    #    tf.logging.info(op.name)
+    #import pdb
+    #pdb.set_trace()
+
     if tf.estimator.ModeKeys.TRAIN == mode:
 
       train_config = pipeline_proto.train_config
@@ -111,10 +118,14 @@ def _create_model_fn(pipeline_proto, is_chief=True):
               tf.logging.warn('Override gradient multiplier: %s', var.op.name)
             gradient_multipliers[var.op.name] = multiplier.multiplier
             tf.logging.info('Set gradient multiplier for %s', var.op.name)
+        tf.logging.info('Variable to train: %s, %s', var.op.name,
+                        var.get_shape())
       tf.logging.info('Apply gradient multipliers: \n%s',
                       json.dumps(gradient_multipliers, indent=2))
 
       def transform_grads_fn(grads):
+        if not gradient_multipliers: 
+          return grads
         return tf.contrib.training.multiply_gradients(grads,
                                                       gradient_multipliers)
 

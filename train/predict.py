@@ -28,6 +28,7 @@ from protos import wsod_voc_model_pb2
 from protos import nod_model_pb2
 from protos import nod2_model_pb2
 from protos import nod3_model_pb2
+from protos import nod4_model_pb2
 from protos import stacked_attn_model_pb2
 from train import trainer
 from core.plotlib import _py_draw_rectangles
@@ -89,7 +90,11 @@ flags.DEFINE_string('shard_indicator', '', '')
 flags.DEFINE_string('input_pattern', '', '')
 
 FLAGS = flags.FLAGS
-logging._get_logger().propagate = False
+
+try:
+  logging._get_logger().propagate = False
+except AttributeError:
+  pass
 
 
 def _load_pipeline_proto(filename):
@@ -130,6 +135,44 @@ def _visualize(examples, categories, filename):
                      example[DetectionResultFields.detection_boxes],
                      example[DetectionResultFields.detection_scores],
                      example[DetectionResultFields.detection_classes])
+
+      # Print captions.
+
+      caption_annot = ''
+      if (InputDataFields.num_captions in example and
+          InputDataFields.caption_strings in example and
+          InputDataFields.caption_lengths in example):
+        (num_captions, caption_strings,
+         caption_lengths) = (example[InputDataFields.num_captions],
+                             example[InputDataFields.caption_strings],
+                             example[InputDataFields.caption_lengths])
+        captions = []
+        for caption_string, caption_length in zip(
+            caption_strings[:num_captions], caption_lengths[:num_captions]):
+          captions.append(' '.join(
+              [x.decode('utf8') for x in caption_string[:caption_length]]))
+        caption_annot = '</br>'.join(captions)
+
+      # Generated image-level ground-truth.
+
+      labels_gt_annot = ''
+      labels_ps_annot = ''
+      if 'debug_groundtruth_labels' in example and 'debug_pseudo_labels' in example:
+        labels_gt = [
+            categories[i]
+            for i, v in enumerate(example['debug_groundtruth_labels'])
+            if v > 0
+        ]
+        labels_ps = [
+            categories[i]
+            for i, v in enumerate(example['debug_pseudo_labels'])
+            if v > 0
+        ]
+        labels_gt_annot = ','.join(labels_gt)
+        labels_ps_annot = ','.join(labels_ps)
+        if labels_ps_annot:
+          labels_ps_annot = 'pseudo:' + labels_ps_annot
+
       # Image canvas.
 
       image = cv2.resize(image, (image_width, image_height))
@@ -181,7 +224,9 @@ def _visualize(examples, categories, filename):
       # Write html file.
 
       fid.write('<tr>')
-      fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (gt_base64))
+      fid.write(
+          '<td><img src="data:image/jpg;base64,%s"></br>%s</br>%s</br>%s</td>' %
+          (gt_base64, caption_annot, labels_gt_annot, labels_ps_annot))
       fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (dt_base64))
       fid.write('</tr>')
     fid.write('</table>')
@@ -214,6 +259,7 @@ def _analyze_tokens(tokens, per_class_token_scores):
 
     tf.logging.info('%i ---- %s', i, ','.join(elems))
 
+
 coco_to_voc = {
     5: 1,
     2: 2,
@@ -235,7 +281,8 @@ coco_to_voc = {
     58: 18,
     7: 19,
     63: 20,
-    }
+}
+
 
 def _convert_coco_result_to_voc(boxes, scores, classes):
   det_boxes, det_scores, det_classes = [], [], []
@@ -244,7 +291,9 @@ def _convert_coco_result_to_voc(boxes, scores, classes):
       det_boxes.append(box)
       det_scores.append(score)
       det_classes.append(coco_to_voc[int(cls)])
-  return np.stack(det_boxes, 0), np.stack(det_scores, 0), np.stack(det_classes, 0)
+  return np.stack(det_boxes, 0), np.stack(det_scores, 0), np.stack(
+      det_classes, 0)
+
 
 def _run_evaluation(pipeline_proto,
                     checkpoint_path,
@@ -347,11 +396,9 @@ def _run_evaluation(pipeline_proto,
       # Add to visualization list.
 
       if len(visl_examples) < FLAGS.max_visl_examples:
-        visl_examples.append({
-            InputDataFields.image_id:
-            examples[InputDataFields.image_id][i],
-            InputDataFields.image:
-            examples[InputDataFields.image][i],
+        visl_example = {
+            InputDataFields.image_id: examples[InputDataFields.image_id][i],
+            InputDataFields.image: examples[InputDataFields.image][i],
             InputDataFields.image_height:
             examples[InputDataFields.image_height][i],
             InputDataFields.image_width:
@@ -362,15 +409,27 @@ def _run_evaluation(pipeline_proto,
             examples[InputDataFields.object_boxes][i],
             InputDataFields.object_texts:
             examples[InputDataFields.object_texts][i],
-            DetectionResultFields.num_detections:
-            num_detections,
-            DetectionResultFields.detection_boxes:
-            detection_boxes,
-            DetectionResultFields.detection_scores:
-            detection_scores,
-            DetectionResultFields.detection_classes:
-            detection_classes
-        })
+            DetectionResultFields.num_detections: num_detections,
+            DetectionResultFields.detection_boxes: detection_boxes,
+            DetectionResultFields.detection_scores: detection_scores,
+            DetectionResultFields.detection_classes: detection_classes
+        }
+        if InputDataFields.num_captions in examples:
+          visl_example[InputDataFields.num_captions] = examples[
+              InputDataFields.num_captions][i]
+        if InputDataFields.caption_strings in examples:
+          visl_example[InputDataFields.caption_strings] = examples[
+              InputDataFields.caption_strings][i]
+        if InputDataFields.caption_lengths in examples:
+          visl_example[InputDataFields.caption_lengths] = examples[
+              InputDataFields.caption_lengths][i]
+        if 'debug_groundtruth_labels' in examples:
+          visl_example['debug_groundtruth_labels'] = examples[
+              'debug_groundtruth_labels'][i]
+        if 'debug_pseudo_labels' in examples:
+          visl_example['debug_pseudo_labels'] = examples['debug_pseudo_labels'][
+              i]
+        visl_examples.append(visl_example)
 
       # Write to detection result file.
 
@@ -412,50 +471,51 @@ def _run_evaluation(pipeline_proto,
       summary.value.add(tag='{}_iter{}'.format(k, oicr_iter), simple_value=v)
     tf.logging.info('\n%s', json.dumps(metrics, indent=2))
 
-  # Write the result file.
-  if save_report_to_file:
-    if FLAGS.evaluator == 'pascal':
-      corloc = [('/'.join(k.split('/')[1:]), v)
-                for k, v in metrics.items()
-                if 'CorLoc' in k]
-      mAP = [('/'.join(k.split('/')[1:]), v)
-             for k, v in metrics.items()
-             if 'AP' in k]
+    # Write the result file.
+    if save_report_to_file:
+      if FLAGS.evaluator == 'pascal':
+        corloc = [('/'.join(k.split('/')[1:]), v)
+                  for k, v in metrics.items()
+                  if 'CorLoc' in k]
+        mAP = [('/'.join(k.split('/')[1:]), v)
+               for k, v in metrics.items()
+               if 'AP' in k]
 
-      filename = os.path.join(FLAGS.results_dir,
-                              FLAGS.pipeline_proto.split('/')[-1])
-      filename = filename.replace('pbtxt', 'csv')
-      with open(filename, 'w') as fid:
-        fid.write('{}\n'.format(eval_count))
-        fid.write('\n')
-        for lst in [mAP, corloc]:
-          line1 = ','.join([k for k, _ in lst]).replace('@0.5IOU', '').replace(
-              'AP/', '').replace('CorLoc/', '')
-          line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in lst])
-
-          fid.write(line1 + '\n')
-          fid.write(line2 + '\n')
+        filename = os.path.join(FLAGS.results_dir,
+                                FLAGS.pipeline_proto.split('/')[-1])
+        filename = filename.replace('pbtxt',
+                                    'csv') + 'iter_{}'.format(oicr_iter)
+        with open(filename, 'w') as fid:
+          fid.write('{}\n'.format(eval_count))
           fid.write('\n')
-          fid.write(line1.replace(',', '&') + '\n')
-          fid.write(line2.replace(',', '&') + '\n')
-          fid.write('\n')
-    elif FLAGS.evaluator == 'coco':
-      value = [('/'.join(k.split('/')[1:]), v) for k, v in metrics.items()]
-      filename = os.path.join(FLAGS.results_dir,
-                              FLAGS.pipeline_proto.split('/')[-1])
-      filename = filename.replace('pbtxt', 'csv')
-      with open(filename, 'w') as fid:
-        fid.write('{}\n'.format(eval_count))
-        fid.write('\n')
-        line1 = ' , '.join([k for k, _ in value])
-        line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in value])
+          for lst in [mAP, corloc]:
+            line1 = ','.join([k for k, _ in lst]).replace(
+                '@0.5IOU', '').replace('AP/', '').replace('CorLoc/', '')
+            line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in lst])
 
-        fid.write(line1 + '\n')
-        fid.write(line2 + '\n')
-        fid.write('\n')
-        fid.write(line1.replace(',', '&') + '\n')
-        fid.write(line2.replace(',', '&') + '\n')
-        fid.write('\n')
+            fid.write(line1 + '\n')
+            fid.write(line2 + '\n')
+            fid.write('\n')
+            fid.write(line1.replace(',', '&') + '\n')
+            fid.write(line2.replace(',', '&') + '\n')
+            fid.write('\n')
+      #elif FLAGS.evaluator == 'coco':
+      #  value = [('/'.join(k.split('/')[1:]), v) for k, v in metrics.items()]
+      #  filename = os.path.join(FLAGS.results_dir,
+      #                          FLAGS.pipeline_proto.split('/')[-1])
+      #  filename = filename.replace('pbtxt', 'csv')
+      #  with open(filename, 'w') as fid:
+      #    fid.write('{}\n'.format(eval_count))
+      #    fid.write('\n')
+      #    line1 = ' , '.join([k for k, _ in value])
+      #    line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in value])
+
+      #    fid.write(line1 + '\n')
+      #    fid.write(line2 + '\n')
+      #    fid.write('\n')
+      #    fid.write(line1.replace(',', '&') + '\n')
+      #    fid.write(line2.replace(',', '&') + '\n')
+      #    fid.write('\n')
 
   if 'PascalBoxes_Precision/mAP@0.5IOU' in metrics:
     return summary, metrics['PascalBoxes_Precision/mAP@0.5IOU']
@@ -528,6 +588,9 @@ def main(_):
   if pipeline_proto.model.HasExtension(nod3_model_pb2.NOD3Model.ext):
     number_of_evaluators = 1 + pipeline_proto.model.Extensions[
         nod3_model_pb2.NOD3Model.ext].oicr_iterations
+  if pipeline_proto.model.HasExtension(nod4_model_pb2.NOD4Model.ext):
+    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
+        nod4_model_pb2.NOD4Model.ext].oicr_iterations
 
   number_of_evaluators = max(1, number_of_evaluators)
 

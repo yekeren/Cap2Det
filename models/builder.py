@@ -19,6 +19,24 @@ from models import frcnn_model
 from protos import frcnn_model_pb2
 from models import voc_model
 from protos import voc_model_pb2
+from models import wsod_voc_model
+from protos import wsod_voc_model_pb2
+from models import nod_model
+from protos import nod_model_pb2
+from models import nod2_model
+from protos import nod2_model_pb2
+from models import nod3_model
+from protos import nod3_model_pb2
+from models import nod4_model
+from protos import nod4_model_pb2
+from models import nod5_model
+from protos import nod5_model_pb2
+from models import visual_w2v_model
+from protos import visual_w2v_model_pb2
+from models import stacked_attn_model
+from protos import stacked_attn_model_pb2
+from models import text_classification_model
+from protos import text_classification_model_pb2
 
 
 def build(options, is_training=False):
@@ -65,10 +83,48 @@ def build(options, is_training=False):
 
   if options.HasExtension(frcnn_model_pb2.FRCNNModel.ext):
     return frcnn_model.Model(options.Extensions[frcnn_model_pb2.FRCNNModel.ext],
-                           is_training)
+                             is_training)
 
   if options.HasExtension(voc_model_pb2.VOCModel.ext):
     return voc_model.Model(options.Extensions[voc_model_pb2.VOCModel.ext],
                            is_training)
 
+  if options.HasExtension(wsod_voc_model_pb2.WsodVocModel.ext):
+    return wsod_voc_model.Model(
+        options.Extensions[wsod_voc_model_pb2.WsodVocModel.ext], is_training)
+
+  if options.HasExtension(nod_model_pb2.NODModel.ext):
+    return nod_model.Model(options.Extensions[nod_model_pb2.NODModel.ext],
+                           is_training)
+
+  if options.HasExtension(nod2_model_pb2.NOD2Model.ext):
+    return nod2_model.Model(options.Extensions[nod2_model_pb2.NOD2Model.ext],
+                            is_training)
+
+  if options.HasExtension(nod3_model_pb2.NOD3Model.ext):
+    return nod3_model.Model(options.Extensions[nod3_model_pb2.NOD3Model.ext],
+                            is_training)
+
+  if options.HasExtension(nod4_model_pb2.NOD4Model.ext):
+    return nod4_model.Model(options.Extensions[nod4_model_pb2.NOD4Model.ext],
+                            is_training)
+
+  if options.HasExtension(nod5_model_pb2.NOD5Model.ext):
+    return nod5_model.Model(options.Extensions[nod5_model_pb2.NOD5Model.ext],
+                            is_training)
+
+  if options.HasExtension(visual_w2v_model_pb2.VisualW2vModel.ext):
+    return visual_w2v_model.Model(
+        options.Extensions[visual_w2v_model_pb2.VisualW2vModel.ext],
+        is_training)
+
+  if options.HasExtension(stacked_attn_model_pb2.StackedAttnModel.ext):
+    return stacked_attn_model.Model(
+        options.Extensions[stacked_attn_model_pb2.StackedAttnModel.ext],
+        is_training)
+
+  if options.HasExtension(text_classification_model_pb2.TextClassificationModel.ext):
+    return text_classification_model.Model(
+        options.Extensions[text_classification_model_pb2.TextClassificationModel.ext],
+        is_training)
   raise ValueError('Unknown model: {}'.format(model))

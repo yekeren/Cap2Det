@@ -9,7 +9,9 @@ from nets import vgg
 from core import utils
 from core import imgproc
 from core import plotlib
+from core import box_utils
 from protos import cnn_pb2
+from object_detection.core.post_processing import batch_multiclass_non_max_suppression
 
 _SMALL_NUMBER = 1e-10
 
@@ -165,8 +167,10 @@ def calc_cnn_feature(image, options, reuse=False, is_training=False):
         is_training=is_training and options.trainable)
     _, end_points = net_fn(image)
 
+  image_feature = end_points[options.output_name]
+  image_feature = tf.reduce_mean(image_feature, [1, 2], name='AvgPool')
   image_feature = slim.dropout(
-      end_points[options.output_name],
+      image_feature,
       keep_prob=options.dropout_keep_prob,
       is_training=is_training)
 
@@ -230,7 +234,7 @@ def gather_in_batch_captions(image_id, num_captions, caption_strings,
   """Gathers all of the in-batch captions into a caption batch.
 
   Args:
-    image_id: image_id, a [batch] string tensor.
+    image_id: image_id, a [batch] int64 tensor.
     num_captions: number of captions of each example, a [batch] int tensor.
     caption_strings: caption data, a [batch, max_num_captions, 
       max_caption_length] string tensor.
@@ -245,6 +249,9 @@ def gather_in_batch_captions(image_id, num_captions, caption_strings,
     caption_lengths_gathered: length of each caption, a [num_captions_in_batch]
       int tensor.
   """
+  if not image_id.dtype in [tf.int32, tf.int64]:
+    raise ValueError('The image_id has to be int32 or int64')
+
   (batch, max_num_captions,
    max_caption_length) = utils.get_tensor_shape(caption_strings)
 
@@ -365,7 +372,9 @@ def _get_box_area(box):
   return box_h * box_w
 
 
-def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
+def build_proposal_saliency_fn(func_name,
+                               border_ratio=None,
+                               purity_weight=None,
                                **kwargs):
   """Builds and returns a callable to compute the proposal saliency.
 
@@ -397,9 +406,9 @@ def build_proposal_saliency_fn(func_name, border_ratio, purity_weight,
 
       # Leave a border for the image border.
       ymin, xmin, ymax, xmax = tf.unstack(box, axis=-1)
-      ymin, xmin = tf.maximum(ymin, 3), tf.maximum(xmin, 3)
-      ymax, xmax = tf.minimum(ymax, tf.to_int64(n - 3)), tf.minimum(
-          xmax, tf.to_int64(m - 3))
+      ymin, xmin = tf.maximum(ymin, 2), tf.maximum(xmin, 2)
+      ymax, xmax = tf.minimum(ymax, tf.to_int64(n - 2)), tf.minimum(
+          xmax, tf.to_int64(m - 2))
 
       box = tf.stack([ymin, xmin, ymax, xmax], axis=-1)
       box_exp = _get_expanded_box(
@@ -675,3 +684,364 @@ def vgg_16(inputs,
       net = slim.max_pool2d(net, [2, 2], scope='pool4')
       net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
   return net
+
+
+def visl_proposals(image,
+                   num_proposals,
+                   proposals,
+                   top_k=100,
+                   height=224,
+                   width=224,
+                   name='proposals'):
+  """Visualize proposal results to the tensorboard.
+
+  Args:
+    image: A [batch, height, width, channels] float tensor, 
+      ranging from 0 to 255.
+    num_proposals: A [batch] int tensor.
+    proposals: A [batch, max_num_proposals, 4] float tensor.
+    height: Height of the visualized image.
+    width: Width of the visualized image.
+  """
+  with tf.name_scope('visl_proposals'):
+    image = tf.image.resize_images(image, [height, width])
+    image = tf.cast(image, tf.uint8)
+    image = plotlib.draw_rectangles(
+        image, boxes=proposals[:, :top_k, :], color=plotlib.RED, fontscale=1.0)
+  tf.summary.image(name, image, max_outputs=10)
+
+
+def visl_detections(image,
+                    num_detections,
+                    detection_boxes,
+                    detection_scores,
+                    detection_classes,
+                    name='visl_detection'):
+  with tf.name_scope('visl_proposals'):
+    image = tf.cast(image, tf.uint8)
+
+    image = plotlib.draw_rectangles_v2(
+        image,
+        total=num_detections,
+        boxes=detection_boxes,
+        scores=detection_scores,
+        labels=detection_classes,
+        color=plotlib.RED,
+        fontscale=0.8)
+
+  tf.summary.image(name, image, max_outputs=10)
+
+
+def visl_proposals_top_k(image,
+                         num_proposals,
+                         proposals,
+                         proposal_scores,
+                         proposal_labels=None,
+                         top_k=5,
+                         threshold=0.01,
+                         height=224,
+                         width=224,
+                         name='midn'):
+  """Visualize top proposal results to the tensorboard.
+
+  Args:
+    image: A [batch, height, width, channels] float tensor, 
+      ranging from 0 to 255.
+    num_proposals: A [batch] int tensor.
+    proposals: A [batch, max_num_proposals, 4] float tensor.
+    proposal_scores: A [batch, max_num_proposals] float tensor.
+    proposal_labels: A [batch, max_num_proposals] float tensor.
+    height: Height of the visualized image.
+    width: Width of the visualized image.
+  """
+  with tf.name_scope('visl_proposals'):
+    image = tf.image.resize_images(image, [height, width])
+    image = tf.cast(image, tf.uint8)
+
+    (top_k_boxes, top_k_scores, top_k_labels) = get_top_k_boxes_and_scores(
+        proposals, proposal_scores, proposal_labels, k=top_k)
+
+    top_k_scores = tf.where(top_k_scores > threshold, top_k_scores,
+                            -9999.0 * tf.ones_like(top_k_scores))
+    image = plotlib.draw_rectangles(
+        image,
+        boxes=top_k_boxes,
+        scores=top_k_scores,
+        labels=top_k_labels,
+        color=plotlib.RED,
+        fontscale=1.0)
+  tf.summary.image(name, image, max_outputs=10)
+
+
+def post_process(boxes,
+                 scores,
+                 score_thresh=1e-6,
+                 iou_thresh=0.5,
+                 max_size_per_class=100,
+                 max_total_size=300):
+  """Applies post process to get the final detections.
+
+  Args:
+    boxes: A [batch_size, num_anchors, q, 4] float32 tensor containing
+      detections. If `q` is 1 then same boxes are used for all classes
+        otherwise, if `q` is equal to number of classes, class-specific boxes
+        are used.
+    scores: A [batch_size, num_anchors, num_classes] float32 tensor containing
+      the scores for each of the `num_anchors` detections. The scores have to be
+      non-negative when use_static_shapes is set True.
+    score_thresh: scalar threshold for score (low scoring boxes are removed).
+    iou_thresh: scalar threshold for IOU (new boxes that have high IOU overlap
+      with previously selected boxes are removed).
+    max_size_per_class: maximum number of retained boxes per class.
+    max_total_size: maximum number of boxes retained over all classes. By
+      default returns all boxes retained after capping boxes per class.
+
+Returns:
+  num_detections: A [batch_size] int32 tensor indicating the number of
+    valid detections per batch item. Only the top num_detections[i] entries in
+    nms_boxes[i], nms_scores[i] and nms_class[i] are valid. The rest of the
+    entries are zero paddings.
+  nmsed_boxes: A [batch_size, max_detections, 4] float32 tensor
+    containing the non-max suppressed boxes.
+  nmsed_scores: A [batch_size, max_detections] float32 tensor containing
+    the scores for the boxes.
+  nmsed_classes: A [batch_size, max_detections] float32 tensor
+    containing the class for boxes.
+  """
+  boxes = tf.expand_dims(boxes, axis=2)
+  (nmsed_boxes, nmsed_scores, nmsed_classes, _, _,
+   num_detections) = batch_multiclass_non_max_suppression(
+       boxes,
+       scores,
+       score_thresh=score_thresh,
+       iou_thresh=iou_thresh,
+       max_size_per_class=max_size_per_class,
+       max_total_size=max_total_size)
+  return num_detections, nmsed_boxes, nmsed_scores, nmsed_classes + 1
+
+
+def calc_oicr_loss(labels,
+                   num_proposals,
+                   proposals,
+                   scores_0,
+                   scores_1,
+                   scope,
+                   iou_threshold=0.5):
+  """Calculates the NOD loss at refinement stage `i`.
+
+  Args:
+    labels: A [batch, num_classes] float tensor.
+    num_proposals: A [batch] int tensor.
+    proposals: A [batch, max_num_proposals, 4] float tensor.
+    scores_0: A [batch, max_num_proposal, 1 + num_classes] float tensor, 
+      representing the proposal score at `k-th` refinement.
+    scores_1: A [batch, max_num_proposal, 1 + num_classes] float tensor,
+      representing the proposal score at `(k+1)-th` refinement.
+
+  Returns:
+    oicr_cross_entropy_loss: a scalar float tensor.
+  """
+  with tf.name_scope(scope):
+    (batch, max_num_proposals,
+     num_classes_plus_one) = utils.get_tensor_shape(scores_0)
+    num_classes = num_classes_plus_one - 1
+
+    # For each class, look for the most confident proposal.
+    #   proposal_ind shape = [batch, num_classes].
+
+    proposal_mask = tf.sequence_mask(
+        num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
+    proposal_ind = utils.masked_argmax(
+        scores_0[:, :, 1:], tf.expand_dims(proposal_mask, axis=-1), dim=1)
+
+    # Deal with the most confident proposal per each class.
+    #   Unstack the `proposal_ind`, `labels`.
+    #   proposal_labels shape = [batch, max_num_proposals, num_classes].
+
+    proposal_labels = []
+    indices_0 = tf.range(batch, dtype=tf.int64)
+    for indices_1, label_per_class in zip(
+        tf.unstack(proposal_ind, axis=-1), tf.unstack(labels, axis=-1)):
+
+      # Gather the most confident proposal for the class.
+      #   confident_proosal shape = [batch, 4].
+
+      indices = tf.stack([indices_0, indices_1], axis=-1)
+      confident_proposal = tf.gather_nd(proposals, indices)
+
+      # Get the Iou from all the proposals to the most confident proposal.
+      #   iou shape = [batch, max_num_proposals].
+
+      confident_proposal_tiled = tf.tile(
+          tf.expand_dims(confident_proposal, axis=1), [1, max_num_proposals, 1])
+      iou = box_utils.iou(
+          tf.reshape(proposals, [-1, 4]),
+          tf.reshape(confident_proposal_tiled, [-1, 4]))
+      iou = tf.reshape(iou, [batch, max_num_proposals])
+
+      # Filter out irrelevant predictions using image-level label.
+
+      target = tf.to_float(tf.greater_equal(iou, iou_threshold))
+      target = tf.where(label_per_class > 0, x=target, y=tf.zeros_like(target))
+      proposal_labels.append(target)
+
+    proposal_labels = tf.stack(proposal_labels, axis=-1)
+
+    # Add background targets, and normalize the sum value to 1.0.
+    #   proposal_labels shape = [batch, max_num_proposals, 1 + num_classes].
+
+    bkg = tf.logical_not(tf.reduce_sum(proposal_labels, axis=-1) > 0)
+    proposal_labels = tf.concat(
+        [tf.expand_dims(tf.to_float(bkg), axis=-1), proposal_labels], axis=-1)
+
+    proposal_labels = tf.div(
+        proposal_labels, tf.reduce_sum(proposal_labels, axis=-1, keepdims=True))
+
+    assert_op = tf.Assert(
+        tf.reduce_all(
+            tf.abs(tf.reduce_sum(proposal_labels, axis=-1) - 1) < 1e-6),
+        ["Probabilities not sum to ONE", proposal_labels])
+
+    # Compute the loss.
+
+    with tf.control_dependencies([assert_op]):
+      losses = tf.nn.softmax_cross_entropy_with_logits(
+          labels=tf.stop_gradient(proposal_labels), logits=scores_1)
+      oicr_cross_entropy_loss = tf.reduce_mean(
+          utils.masked_avg(data=losses, mask=proposal_mask, dim=1))
+
+  return oicr_cross_entropy_loss
+
+
+def calc_pairwise_similarity(feature_a,
+                             feature_b,
+                             dropout_keep_prob=1.0,
+                             l2_normalize=True,
+                             is_training=False):
+  """Computes the similarity between the two modality.
+
+  Args:
+    feature_a: A [batch_a, feature_dims] float tensor.
+    feature_b: A [batch_b, feature_dims] float tensor.
+
+  Returns:
+    A [batch_a, batch_b] similarity matrix.
+  """
+  if l2_normalize:
+    feature_a = tf.nn.l2_normalize(feature_a, axis=-1)
+    feature_b = tf.nn.l2_normalize(feature_b, axis=-1)
+
+  feature_a = tf.expand_dims(feature_a, axis=1)
+  feature_b = tf.expand_dims(feature_b, axis=0)
+  dot_product = tf.multiply(feature_a, feature_b)
+  return tf.reduce_sum(dot_product, axis=-1)
+
+
+def expand_vocabulary(vocabulary_list):
+  mapping = {
+      'person': [
+          'person', 'girl', 'boy', 'man', 'woman', 'kid', 'child', 'chef',
+          'baker', 'people', 'adult', 'rider', 'children', 'baby', 'worker',
+          'passenger', 'sister', 'biker', 'policeman', 'officer', 'lady',
+          'cowboy', 'bride', 'groom', 'male', 'female', 'guy', 'traveler',
+          'mother', 'father', 'gentleman', 'pitcher', 'player', 'skier',
+          'snowboarder', 'skater', 'skateboarder', 'foreigner', 'caller',
+          'offender', 'coworker', 'trespasser', 'patient', 'politician',
+          'soldier', 'grandchild', 'serviceman', 'walker', 'drinker', 'doctor',
+          'bicyclist', 'thief', 'buyer', 'teenager', 'student', 'camper',
+          'driver', 'solider', 'hunter', 'shopper', 'villager', 'cop'
+      ],
+      'bicycle': ['bicycle', 'bike', 'unicycle', 'minibike', 'trike'],
+      'car': [
+          'car', 'automobile', 'van', 'minivan', 'sedan', 'suv', 'hatchback',
+          'cab', 'jeep', 'coupe', 'taxicab', 'limo', 'taxi'
+      ],
+      'motorcycle': [
+          'motorcycle', 'scooter', 'motor bike', 'motor cycle', 'motorbike',
+          'moped'
+      ],
+      'airplane': [
+          'airplane', 'jetliner', 'plane', 'air plane', 'monoplane', 'aircraft',
+          'jet', 'airbus', 'biplane', 'seaplane bus', 'minibus', 'trolley'
+      ],
+      'bus': ['bus', 'minibus', 'schoolbus', 'trolley'],
+      'train': ['train', 'locomotive', 'tramway', 'caboose'],
+      'truck': ['truck', 'pickup', 'lorry', 'hauler', 'firetruck'],
+      'boat': [
+          'boat', 'ship', 'liner', 'sailboat', 'motorboat', 'dinghy',
+          'powerboat', 'speedboat', 'canoe', 'skiff', 'yacht', 'kayak',
+          'catamaran', 'pontoon', 'houseboat', 'vessel', 'rowboat', 'trawler',
+          'ferryboat', 'watercraft', 'tugboat', 'schooner', 'barge', 'ferry',
+          'sailboard', 'paddleboat', 'lifeboat', 'freighter', 'steamboat',
+          'riverboat', 'surfboard', 'battleship', 'steamship'
+      ],
+      'traffic light': [
+          'traffic light', 'street light', 'traffic signal', 'stop light',
+          'streetlight', 'stoplight'
+      ],
+      'fire hydrant': ['fire hydrant', 'hydrant'],
+      'stop sign': ['stop sign', 'street sign'],
+      'parking meter': ['parking meter'],
+      'bench': ['bench', 'pew'],
+      'cat': ['cat', 'kitten', 'feline', 'tabby'],
+      'dog': [
+          'dog', 'puppy', 'beagle', 'pup', 'chihuahua', 'schnauzer',
+          'dachshund', 'rottweiler', 'canine', 'pitbull', 'collie', 'pug',
+          'terrier', 'poodle', 'labrador', 'doggie', 'doberman', 'mutt',
+          'doggy', 'spaniel', 'bulldog', 'sheepdog', 'weimaraner', 'corgi',
+          'cocker', 'greyhound', 'retriever', 'brindle', 'hound', 'whippet',
+          'husky'
+      ],
+      'horse': [
+          'horse', 'colt', 'pony', 'racehorse', 'stallion', 'equine', 'mare',
+          'foal', 'palomino', 'mustang', 'clydesdale', 'bronc', 'bronco'
+      ],
+      'sheep': ['sheep', 'lamb', 'goat', 'ram', 'cattle', 'ewe'],
+      'cow': [
+          'cow', 'cattle', 'oxen', 'ox', 'calf', 'ewe', 'holstein', 'heifer',
+          'buffalo', 'bull', 'zebu', 'bison'
+      ],
+      'elephant': ['elephant'],
+      'bear': ['bear', 'panda'],
+      'zebra': ['zebra'],
+      'giraffe': ['giraffe'],
+      'backpack': ['backpack', 'knapsack'],
+      'umbrella': ['umbrella'],
+      'handbag': ['handbag', 'handbag', 'wallet', 'purse', 'briefcase'],
+      'tie': ['tie'],
+      'suitcase': ['suitcase', 'suit case', 'luggage'],
+      'frisbee': ['frisbee'],
+      'skis': ['skis', 'ski'],
+      'snowboard': ['snowboard'],
+      'sports ball': [
+          'sports ball', 'baseball', 'ball', 'football', 'soccer', 'basketball',
+          'softball', 'volleyball', 'pinball', 'fastball', 'racquetball'
+      ],
+      'kite': ['kite'],
+      'baseball bat': ['baseball bat'],
+      'baseball glove': ['baseball glove'],
+      'skateboard': ['skateboard'],
+      'surfboard':
+      ['surfboard', 'longboard', 'skimboard', 'shortboard', 'wakeboard'],
+      'tennis racket': ['tennis racket'],
+      'bottle': ['bottle'],
+      'wine glass': ['wine glass'],
+      'cup': ['cup'],
+      'fork': ['fork'],
+      'knife': ['knife', 'pocketknife', 'knive']
+  }
+  assert len(mapping) == 80, len(mapping)
+
+  data = {}
+  for i, w in enumerate(vocabulary_list):
+    data[w] = i
+  assert len(data) == 80, len(data)
+
+  for w, synonyms in mapping.items():
+    for s in synonyms:
+      data[s] = data[w]
+
+  import pdb
+  pdb.set_trace()
+  j = 1
+  return data

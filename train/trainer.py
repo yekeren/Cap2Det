@@ -49,17 +49,15 @@ def _create_model_fn(pipeline_proto, is_chief=True):
     scaffold = model.get_scaffold()
     variables_to_train = model.get_variables_to_train()
 
-    # Compute losses.
+    # Compute losses. Note: variables created in build_loss are not trainable.
 
     losses = model.build_loss(predictions, examples=features)
     for name, loss in losses.items():
       tf.losses.add_loss(loss)
       tf.summary.scalar('loss/' + name, loss)
-
     for loss in tf.losses.get_regularization_losses():
       tf.summary.scalar(
           "loss/regularization/" + '/'.join(loss.op.name.split('/')[:2]), loss)
-
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     train_op = None

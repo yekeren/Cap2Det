@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from models.model_base import ModelBase
-from protos import nod2_model_pb2
+from protos import wsod_model_pb2
 
 from nets import nets_factory
 from nets import vgg
@@ -14,7 +14,7 @@ from core import imgproc
 from core import utils
 from core import plotlib
 from core.standard_fields import InputDataFields
-from core.standard_fields import NOD2Predictions
+#from core.standard_fields import WSODPredictions
 from core.standard_fields import DetectionResultFields
 from core.training_utils import build_hyperparams
 from core import init_grid_anchors
@@ -23,26 +23,26 @@ from core import box_utils
 from core import builder as function_builder
 
 from object_detection.builders import hyperparams_builder
-from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
+from models.registry import register_model_class
 
 slim = tf.contrib.slim
 _EPSILON = 1e-8
 
 
 class Model(ModelBase):
-  """NOD2 model."""
+  """WSOD model."""
 
   def __init__(self, model_proto, is_training=False):
     """Initializes the model.
 
     Args:
-      model_proto: an instance of nod2_model_pb2.NOD2Model
+      model_proto: an instance of wsod_model_pb2.WSODModel
       is_training: if True, training graph will be built.
     """
     super(Model, self).__init__(model_proto, is_training)
 
-    if not isinstance(model_proto, nod2_model_pb2.NOD2Model):
-      raise ValueError('The model_proto has to be an instance of NOD2Model.')
+    if not isinstance(model_proto, wsod_model_pb2.WSODModel):
+      raise ValueError('The model_proto has to be an instance of WSODModel.')
 
     options = model_proto
 
@@ -85,152 +85,6 @@ class Model(ModelBase):
       labels.set_shape([batch, len(vocabulary_list)])
 
     return labels
-
-  def _extract_frcnn_feature(self, inputs, num_proposals, proposals):
-    """Extracts Fast-RCNN feature from image.
-
-    Args:
-      inputs: A [batch, height, width, channels] float tensor.
-      num_proposals: A [batch] int tensor.
-      proposals: A [batch, max_num_proposals, 4] float tensor.
-
-    Returns:
-      proposal_features: A [batch, max_num_proposals, feature_dims] float 
-        tensor.
-    """
-    options = self._model_proto
-    is_training = self._is_training
-
-    # Extract `features_to_crop` from the original image.
-    #   shape = [batch, feature_height, feature_width, feature_depth].
-
-    preprocessed_inputs = self._feature_extractor.preprocess(inputs)
-
-    (features_to_crop, _) = self._feature_extractor.extract_proposal_features(
-        preprocessed_inputs, scope='first_stage_feature_extraction')
-
-    if options.dropout_on_feature_map:
-      features_to_crop = slim.dropout(
-          features_to_crop,
-          keep_prob=options.dropout_keep_prob,
-          is_training=is_training)
-
-    # Crop `flattened_proposal_features_maps`.
-    #   shape = [batch*max_num_proposals, crop_size, crop_size, feature_depth].
-
-    batch, max_num_proposals, _ = utils.get_tensor_shape(proposals)
-    box_ind = tf.expand_dims(tf.range(batch), axis=-1)
-    box_ind = tf.tile(box_ind, [1, max_num_proposals])
-
-    cropped_regions = tf.image.crop_and_resize(
-        features_to_crop,
-        boxes=tf.reshape(proposals, [-1, 4]),
-        box_ind=tf.reshape(box_ind, [-1]),
-        crop_size=[options.initial_crop_size, options.initial_crop_size])
-
-    flattened_proposal_features_maps = slim.max_pool2d(
-        cropped_regions,
-        [options.maxpool_kernel_size, options.maxpool_kernel_size],
-        stride=options.maxpool_stride)
-
-    # Extract `proposal_features`,
-    #   shape = [batch, max_num_proposals, feature_dims].
-
-    (box_classifier_features
-    ) = self._feature_extractor.extract_box_classifier_features(
-        flattened_proposal_features_maps,
-        scope='second_stage_feature_extraction')
-
-    flattened_roi_pooled_features = tf.reduce_mean(
-        box_classifier_features, [1, 2], name='AvgPool')
-    flattened_roi_pooled_features = slim.dropout(
-        flattened_roi_pooled_features,
-        keep_prob=options.dropout_keep_prob,
-        is_training=is_training)
-
-    proposal_features = tf.reshape(flattened_roi_pooled_features,
-                                   [batch, max_num_proposals, -1])
-
-    # Assign weights from pre-trained checkpoint.
-
-    tf.train.init_from_checkpoint(
-        options.checkpoint_path,
-        assignment_map={"/": "first_stage_feature_extraction/"})
-    tf.train.init_from_checkpoint(
-        options.checkpoint_path,
-        assignment_map={"/": "second_stage_feature_extraction/"})
-
-    return proposal_features
-
-  def _build_midn_network_tanh(self,
-                               num_proposals,
-                               proposal_features,
-                               num_classes=20,
-                               tanh_hiddens=50):
-    """Builds the Multiple Instance Detection Network.
-
-    MIDN: An attention network.
-
-    Args:
-      num_proposals: A [batch] int tensor.
-      proposal_features: A [batch, max_num_proposals, features_dims] 
-        float tensor.
-      num_classes: Number of classes.
-
-    Returns:
-      logits: A [batch, num_classes] float tensor.
-      proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
-    """
-    with tf.name_scope('multi_instance_detection'):
-
-      batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
-      mask = tf.sequence_mask(
-          num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-      mask = tf.expand_dims(mask, axis=-1)
-
-      # Calculates the values of following tensors:
-      #   logits_r_given_c shape = [batch, max_num_proposals, num_classes].
-      #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
-
-      with tf.variable_scope('midn'):
-        tanh_output = slim.fully_connected(
-            proposal_features,
-            num_outputs=tanh_hiddens,
-            activation_fn=tf.nn.tanh,
-            scope='tanh_output')
-        logits_r_given_c = slim.fully_connected(
-            tanh_output,
-            num_outputs=num_classes,
-            activation_fn=None,
-            scope='proba_r_given_c')
-        logits_c_given_r = slim.fully_connected(
-            proposal_features,
-            num_outputs=num_classes,
-            activation_fn=None,
-            scope='proba_c_given_r')
-
-      # Calculates the detection scores.
-
-      proba_r_given_c = utils.masked_softmax(
-          data=tf.multiply(mask, logits_r_given_c), mask=mask, dim=1)
-      proba_r_given_c = tf.multiply(mask, proba_r_given_c)
-
-      # Aggregates the logits.
-
-      class_logits = tf.multiply(logits_c_given_r, proba_r_given_c)
-      class_logits = utils.masked_sum(data=class_logits, mask=mask, dim=1)
-
-      proposal_scores = tf.multiply(
-          tf.nn.sigmoid(class_logits), proba_r_given_c)
-      #proposal_scores = tf.multiply(
-      #    tf.nn.softmax(class_logits), proba_r_given_c)
-
-      tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
-      tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
-      tf.summary.histogram('midn/proposal_scores', proposal_scores)
-      tf.summary.histogram('midn/class_logits', class_logits)
-
-    return tf.squeeze(class_logits, axis=1), proposal_scores, proba_r_given_c
 
   def _build_midn_network(self,
                           num_proposals,
@@ -296,93 +150,6 @@ class Model(ModelBase):
 
     return tf.squeeze(class_logits, axis=1), proposal_scores, proba_r_given_c
 
-  def _build_latent_network(self,
-                            num_proposals,
-                            proposal_features,
-                            num_classes=20,
-                            num_latent_factors=20,
-                            proba_h_given_c=None,
-                            proba_h_use_sigmoid=False):
-    """Builds the Multiple Instance Detection Network.
-
-    MIDN: An attention network.
-
-    Args:
-      num_proposals: A [batch] int tensor.
-      proposal_features: A [batch, max_num_proposals, features_dims] 
-        float tensor.
-      num_classes: Number of classes.
-      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
-
-    Returns:
-      logits: A [batch, num_classes] float tensor.
-      proba_r_given_c: A [batch, max_num_proposals, num_classes] float tensor.
-      proba_h_given_c: A [num_latent_factors, num_classes] float tensor.
-    """
-    if proba_h_given_c is not None:
-      assert proba_h_given_c.get_shape()[0].value == num_latent_factors
-
-    batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
-    mask = tf.sequence_mask(
-        num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-    mask = tf.expand_dims(mask, axis=-1)
-
-    # Calculates the values of following tensors:
-    #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
-    #   logits_r_given_h shape = [batch, max_num_proposals, num_latent_factors].
-    #   logits_h_given_c shape = [num_latent_factors, num_classes].
-
-    with tf.variable_scope('midn'):
-      logits_c_given_r = slim.fully_connected(
-          proposal_features,
-          num_outputs=num_classes,
-          activation_fn=None,
-          scope='proba_c_given_r')
-      logits_r_given_h = slim.fully_connected(
-          proposal_features,
-          num_outputs=num_latent_factors,
-          activation_fn=None,
-          scope='proba_r_given_h')
-
-      if proba_h_given_c is None:
-        logits_h_given_c = slim.fully_connected(
-            tf.diag(tf.ones([num_classes])),
-            num_outputs=num_latent_factors,
-            activation_fn=None,
-            scope='proba_h_given_c')
-        logits_h_given_c = tf.transpose(logits_h_given_c)
-        tf.summary.histogram('logits_h_given_c', logits_h_given_c)
-
-        if proba_h_use_sigmoid:
-          proba_h_given_c = tf.nn.sigmoid(logits_h_given_c)
-        else:
-          proba_h_given_c = tf.nn.softmax(logits_h_given_c, axis=0)
-
-    logits_r_given_c = tf.matmul(
-        tf.reshape(logits_r_given_h, [-1, num_latent_factors]), proba_h_given_c)
-    logits_r_given_c = tf.reshape(logits_r_given_c,
-                                  [batch, max_num_proposals, num_classes])
-
-    proba_r_given_c = utils.masked_softmax(
-        data=logits_r_given_c, mask=mask, dim=1)
-    proba_r_given_c = tf.multiply(mask, proba_r_given_c)
-
-    # Aggregates the logits.
-
-    class_logits = tf.multiply(logits_c_given_r, proba_r_given_c)
-    class_logits = utils.masked_sum(data=class_logits, mask=mask, dim=1)
-
-    proposal_scores = tf.multiply(tf.nn.sigmoid(class_logits), proba_r_given_c)
-    #proposal_scores = tf.multiply(
-    #    tf.nn.softmax(class_logits), proba_r_given_c)
-
-    tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
-    tf.summary.histogram('midn/logits_r_given_h', logits_r_given_h)
-    tf.summary.histogram('midn/class_logits', class_logits)
-
-    return (tf.squeeze(class_logits, axis=1), proposal_scores, proba_r_given_c,
-            proba_h_given_c)
-
   def _post_process(self, inputs, predictions):
     """Post processes the predictions.
 
@@ -402,7 +169,7 @@ class Model(ModelBase):
 
     for i in range(1 + options.oicr_iterations):
       post_process_fn = self._midn_post_process_fn
-      proposal_scores = predictions[NOD2Predictions.oicr_proposal_scores +
+      proposal_scores = predictions[WSODPredictions.oicr_proposal_scores +
                                     '_at_{}'.format(i)]
       proposal_scores = tf.stop_gradient(proposal_scores)
       if i > 0:
@@ -466,7 +233,7 @@ class Model(ModelBase):
     predictions = {}
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       for i in range(options.oicr_iterations):
-        predictions[NOD2Predictions.oicr_proposal_scores + '_at_{}'.format(
+        predictions[WSODPredictions.oicr_proposal_scores + '_at_{}'.format(
             i + 1)] = proposal_scores = slim.fully_connected(
                 proposal_features,
                 num_outputs=1 + self._num_classes,
@@ -485,11 +252,11 @@ class Model(ModelBase):
     #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      if options.attention_type == nod2_model_pb2.NOD2Model.PER_CLASS:
+      if options.attention_type == wsod_model_pb2.WSODModel.PER_CLASS:
         (midn_class_logits, midn_proposal_scores,
          midn_proba_r_given_c) = self._build_midn_network(
              num_proposals, proposal_features, num_classes=self._num_classes)
-      elif options.attention_type == nod2_model_pb2.NOD2Model.PER_CLASS_TANH:
+      elif options.attention_type == wsod_model_pb2.WSODModel.PER_CLASS_TANH:
         (midn_class_logits, midn_proposal_scores,
          midn_proba_r_given_c) = self._build_midn_network_tanh(
              num_proposals, proposal_features, num_classes=self._num_classes)
@@ -503,11 +270,11 @@ class Model(ModelBase):
         num_proposals,
         DetectionResultFields.proposal_boxes:
         proposals,
-        NOD2Predictions.midn_class_logits:
+        WSODPredictions.midn_class_logits:
         midn_class_logits,
-        NOD2Predictions.midn_proba_r_given_c:
+        WSODPredictions.midn_proba_r_given_c:
         midn_proba_r_given_c,
-        NOD2Predictions.oicr_proposal_scores + '_at_0':
+        WSODPredictions.oicr_proposal_scores + '_at_0':
         midn_proposal_scores
     })
 
@@ -552,7 +319,7 @@ class Model(ModelBase):
         predictions = self._build_prediction(examples, post_process=False)
 
       for i in range(1 + options.oicr_iterations):
-        proposals_scores = predictions[NOD2Predictions.oicr_proposal_scores +
+        proposals_scores = predictions[WSODPredictions.oicr_proposal_scores +
                                        '_at_{}'.format(i)]
         proposal_scores_list[i].append(proposals_scores)
 
@@ -564,34 +331,13 @@ class Model(ModelBase):
     for i in range(1 + options.oicr_iterations):
       proposal_scores = tf.stack(proposal_scores_list[i], axis=-1)
       proposal_scores = tf.reduce_mean(proposal_scores, axis=-1)
-      predictions_aggregated[NOD2Predictions.oicr_proposal_scores +
+      predictions_aggregated[WSODPredictions.oicr_proposal_scores +
                              '_at_{}'.format(i)] = proposal_scores
 
     predictions_aggregated.update(
         self._post_process(inputs, predictions_aggregated))
 
     return predictions_aggregated
-
-  def _midn_loss_mine_hardest_negative(self, labels, losses):
-    """Hardest negative mining of the MIDN loss.
-
-    Args:
-      labels: A [batch, num_classes] float tensor, where `1` denotes the 
-        presence of a class.
-      losses: A [batch, num_classes] float tensor, the losses predicted by  
-        the model.
-
-    Returns:
-      mask: A [batch, num_classes] float tensor where `1` denotes the 
-        selected entry.
-    """
-    batch, num_classes = utils.get_tensor_shape(labels)
-    indices_0 = tf.range(batch, dtype=tf.int64)
-    indices_1 = utils.masked_argmax(data=losses, mask=1.0 - labels, dim=1)
-    indices = tf.stack([indices_0, indices_1], axis=-1)
-    negative_masks = tf.sparse_to_dense(
-        indices, [batch, num_classes], sparse_values=1.0)
-    return tf.add(labels, negative_masks)
 
   def build_loss(self, predictions, examples, **kwargs):
     """Build tf graph to compute loss.
@@ -624,18 +370,15 @@ class Model(ModelBase):
 
       # Loss of the multi-instance detection network.
 
-      midn_class_logits = predictions[NOD2Predictions.midn_class_logits]
+      midn_class_logits = predictions[WSODPredictions.midn_class_logits]
       losses = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=labels, logits=midn_class_logits)
 
       # Hard-negative mining.
 
-      if options.midn_loss_negative_mining == nod2_model_pb2.NOD2Model.NONE:
+      if options.midn_loss_negative_mining == wsod_model_pb2.WSODModel.NONE:
         if options.classification_loss_use_sum:
           assert False
-          loss_dict['midn_cross_entropy_loss'] = tf.multiply(
-              tf.reduce_mean(tf.reduce_sum(losses, axis=-1)),
-              options.midn_loss_weight)
         else:
           if options.caption_as_label:
             loss_masks = tf.to_float(tf.reduce_any(labels > 0, axis=-1))
@@ -647,11 +390,6 @@ class Model(ModelBase):
           else:
             loss_dict['midn_cross_entropy_loss'] = tf.multiply(
                 tf.reduce_mean(losses), options.midn_loss_weight)
-      elif options.midn_loss_negative_mining == nod2_model_pb2.NOD2Model.HARDEST:
-        assert False
-        loss_masks = self._midn_loss_mine_hardest_negative(labels, losses)
-        loss_dict['midn_cross_entropy_loss'] = tf.reduce_mean(
-            utils.masked_avg(data=losses, mask=loss_masks, dim=1))
       else:
         raise ValueError('Invalid negative mining method.')
 
@@ -662,10 +400,10 @@ class Model(ModelBase):
                      predictions[DetectionResultFields.proposal_boxes])
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposals)
 
-      proposal_scores_0 = predictions[NOD2Predictions.oicr_proposal_scores +
+      proposal_scores_0 = predictions[WSODPredictions.oicr_proposal_scores +
                                       '_at_0']
       if options.oicr_use_proba_r_given_c:
-        proposal_scores_0 = predictions[NOD2Predictions.midn_proba_r_given_c]
+        proposal_scores_0 = predictions[WSODPredictions.midn_proba_r_given_c]
 
       proposal_scores_0 = tf.concat(
           [tf.fill([batch, max_num_proposals, 1], 0.0), proposal_scores_0],
@@ -676,7 +414,7 @@ class Model(ModelBase):
                                tf.float32)
 
       for i in range(options.oicr_iterations):
-        proposal_scores_1 = predictions[NOD2Predictions.oicr_proposal_scores +
+        proposal_scores_1 = predictions[WSODPredictions.oicr_proposal_scores +
                                         '_at_{}'.format(i + 1)]
         oicr_cross_entropy_loss_at_i = model_utils.calc_oicr_loss(
             labels,
@@ -696,7 +434,7 @@ class Model(ModelBase):
 
       mask = tf.sequence_mask(
           num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-      proba_r_given_c = predictions[NOD2Predictions.midn_proba_r_given_c]
+      proba_r_given_c = predictions[WSODPredictions.midn_proba_r_given_c]
       losses = tf.log(proba_r_given_c + _EPSILON)
       losses = tf.squeeze(
           utils.masked_sum_nd(data=losses, mask=mask, dim=1), axis=1)
@@ -726,3 +464,5 @@ class Model(ModelBase):
         update_op) tuple. see tf.metrics for details.
     """
     return {}
+
+register_model_class(wsod_model_pb2.WSODModel.ext, Model)

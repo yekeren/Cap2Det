@@ -10,7 +10,7 @@ from core import utils
 from core import imgproc
 from core import plotlib
 from core import box_utils
-from protos import cnn_pb2
+#from protos import cnn_pb2
 from object_detection.core.post_processing import batch_multiclass_non_max_suppression
 
 _SMALL_NUMBER = 1e-10

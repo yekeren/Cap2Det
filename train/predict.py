@@ -13,23 +13,11 @@ from google.protobuf import text_format
 
 from core.standard_fields import InputDataFields
 from core.standard_fields import DetectionResultFields
-from core.standard_fields import NODPredictions
-from core.standard_fields import NOD2Predictions
+from core.standard_fields import WSODPredictions
 from core.training_utils import save_model_if_it_is_better
 from core.training_utils import get_best_model_checkpoint
 from core import plotlib
 from protos import pipeline_pb2
-from protos import mil_model_pb2
-from protos import oicr_model_pb2
-from protos import oicr_dilated_model_pb2
-from protos import multi_resol_model_pb2
-from protos import frcnn_model_pb2
-from protos import wsod_voc_model_pb2
-from protos import nod_model_pb2
-from protos import nod2_model_pb2
-from protos import nod3_model_pb2
-from protos import nod4_model_pb2
-from protos import stacked_attn_model_pb2
 from train import trainer
 from core.plotlib import _py_draw_rectangles
 from core import box_utils
@@ -38,10 +26,6 @@ from object_detection.utils import object_detection_evaluation
 from object_detection.metrics import coco_evaluation
 
 from tensorflow.python.platform import tf_logging as logging
-
-#from json import encoder
-#
-#encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
 flags = tf.app.flags
 
@@ -70,6 +54,8 @@ flags.DEFINE_integer('max_eval_examples', 500,
 flags.DEFINE_integer('max_visl_examples', 100, 'Minimum eval steps.')
 
 flags.DEFINE_integer('min_eval_steps', 2000, 'Minimum eval steps.')
+
+flags.DEFINE_integer('number_of_evaluators', 3, 'Number of evaluators.')
 
 flags.DEFINE_string('results_dir', 'results',
                     'Path to the directory saving results.')
@@ -233,33 +219,6 @@ def _visualize(examples, categories, filename):
   tf.logging.info('File is written to %s, #images=%i', filename, example_index)
 
 
-def _analyze_latent_variables(proba_h_given_c, categories):
-  """Analyzes latent varibles.
-
-  Args:
-    proba_h_given_c: A [num_latent_factors, num_classes] numpy array.
-  """
-  for (data, category) in zip(proba_h_given_c.transpose(), categories):
-    factors = []
-    for i in data.argsort()[::-1]:
-      if data[i] <= 0.05: break
-      factors.append('%i:%.3lf' % (i, data[i]))
-    tf.logging.info('Class %s: %s', category['name'], ', '.join(factors))
-
-
-def _analyze_tokens(tokens, per_class_token_scores):
-  top_k = 10
-  num_classes = per_class_token_scores.shape[1]
-  for i in range(num_classes):
-    elems = []
-    indices = np.argsort(per_class_token_scores[:, i])[::-1][:top_k]
-    for j in indices:
-      score = per_class_token_scores[j][i]
-      elems.append('%s:%.2lf' % (tokens[j].decode('utf8'), score))
-
-    tf.logging.info('%i ---- %s', i, ','.join(elems))
-
-
 coco_to_voc = {
     5: 1,
     2: 2,
@@ -318,11 +277,6 @@ def _run_evaluation(pipeline_proto,
 
     if eval_count == 0:
       summary = tf.Summary().FromString(summary_bytes)
-      if NODPredictions.midn_proba_h_given_c in examples:
-        _analyze_latent_variables(examples[NODPredictions.midn_proba_h_given_c],
-                                  categories)
-      if 'tokens' in examples and 'per_class_token_scores' in examples:
-        _analyze_tokens(examples['tokens'], examples['per_class_token_scores'])
 
       class_labels = [
           x.decode('utf8') for x in examples[DetectionResultFields.class_labels]
@@ -499,23 +453,6 @@ def _run_evaluation(pipeline_proto,
             fid.write(line1.replace(',', '&') + '\n')
             fid.write(line2.replace(',', '&') + '\n')
             fid.write('\n')
-      #elif FLAGS.evaluator == 'coco':
-      #  value = [('/'.join(k.split('/')[1:]), v) for k, v in metrics.items()]
-      #  filename = os.path.join(FLAGS.results_dir,
-      #                          FLAGS.pipeline_proto.split('/')[-1])
-      #  filename = filename.replace('pbtxt', 'csv')
-      #  with open(filename, 'w') as fid:
-      #    fid.write('{}\n'.format(eval_count))
-      #    fid.write('\n')
-      #    line1 = ' , '.join([k for k, _ in value])
-      #    line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in value])
-
-      #    fid.write(line1 + '\n')
-      #    fid.write(line2 + '\n')
-      #    fid.write('\n')
-      #    fid.write(line1.replace(',', '&') + '\n')
-      #    fid.write(line2.replace(',', '&') + '\n')
-      #    fid.write('\n')
 
   if 'PascalBoxes_Precision/mAP@0.5IOU' in metrics:
     return summary, metrics['PascalBoxes_Precision/mAP@0.5IOU']
@@ -554,45 +491,7 @@ def main(_):
 
   # Create the evaluator.
 
-  number_of_evaluators = 0
-  if pipeline_proto.model.HasExtension(mil_model_pb2.MILModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        mil_model_pb2.MILModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(oicr_model_pb2.OICRModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        oicr_model_pb2.OICRModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(
-      oicr_dilated_model_pb2.OICRDilatedModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        oicr_dilated_model_pb2.OICRDilatedModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(
-      multi_resol_model_pb2.MultiResolModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        multi_resol_model_pb2.MultiResolModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(frcnn_model_pb2.FRCNNModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        frcnn_model_pb2.FRCNNModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(wsod_voc_model_pb2.WsodVocModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        wsod_voc_model_pb2.WsodVocModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(nod_model_pb2.NODModel.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        nod_model_pb2.NODModel.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(
-      stacked_attn_model_pb2.StackedAttnModel.ext):
-    number_of_evaluators = pipeline_proto.model.Extensions[
-        stacked_attn_model_pb2.StackedAttnModel.ext].saddn_iterations
-  if pipeline_proto.model.HasExtension(nod2_model_pb2.NOD2Model.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        nod2_model_pb2.NOD2Model.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(nod3_model_pb2.NOD3Model.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        nod3_model_pb2.NOD3Model.ext].oicr_iterations
-  if pipeline_proto.model.HasExtension(nod4_model_pb2.NOD4Model.ext):
-    number_of_evaluators = 1 + pipeline_proto.model.Extensions[
-        nod4_model_pb2.NOD4Model.ext].oicr_iterations
-
-  number_of_evaluators = max(1, number_of_evaluators)
+  number_of_evaluators = max(1, FLAGS.number_of_evaluators)
 
   if FLAGS.evaluator.lower() == 'pascal':
     evaluators = [

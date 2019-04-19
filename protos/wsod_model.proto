@@ -20,9 +20,6 @@ message WSODModel {
   // Hyperparams of all the FC layers.
   optional Hyperparams fc_hyperparams = 12;
 
-  // If true, modeling prior probability using sigmoid function.
-  optional bool prior_proba_use_sigmoid = 19 [default = false];
-
   // OICR iterations.
   optional int32 oicr_iterations = 21 [default = 0];
 
@@ -38,9 +35,10 @@ message WSODModel {
   // Config of the OICR post processor.
   optional PostProcess oicr_post_process = 32;
 
-  repeated int32 eval_max_dimension = 35;
+  // Resolutions at inference time.
   repeated int32 eval_min_dimension = 34;
 
+  // If true, use proba_r_given_c as oicr_score_0.
   optional bool oicr_use_proba_r_given_c = 36 [default = true];
 
   // MIDN loss weight.

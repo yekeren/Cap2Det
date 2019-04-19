@@ -55,7 +55,7 @@ flags.DEFINE_integer('max_visl_examples', 100, 'Minimum eval steps.')
 
 flags.DEFINE_integer('min_eval_steps', 2000, 'Minimum eval steps.')
 
-flags.DEFINE_integer('number_of_evaluators', 3, 'Number of evaluators.')
+flags.DEFINE_integer('number_of_evaluators', 4, 'Number of evaluators.')
 
 flags.DEFINE_string('results_dir', 'results',
                     'Path to the directory saving results.')

@@ -363,8 +363,12 @@ class Model(ModelBase):
           axis=-1)
 
       global_step = tf.train.get_or_create_global_step()
-      oicr_loss_mask = tf.cast(global_step > options.oicr_start_step,
-                               tf.float32)
+      #oicr_loss_mask = tf.cast(global_step > options.oicr_start_step,
+      #                         tf.float32)
+      oicr_start_step = max(1, options.oicr_start_step)
+      oicr_loss_mask = tf.where(
+          global_step > options.oicr_start_step, 1.0,
+          tf.div(tf.to_float(global_step), oicr_start_step))
 
       for i in range(options.oicr_iterations):
         proposal_scores_1 = predictions[WSODPredictions.oicr_proposal_scores +
@@ -383,6 +387,7 @@ class Model(ModelBase):
 
         proposal_scores_0 = tf.nn.softmax(proposal_scores_1, axis=-1)
 
+    tf.summary.scalar('loss/oicr_mask', oicr_loss_mask)
     return loss_dict
 
   def build_evaluation(self, predictions, examples, **kwargs):

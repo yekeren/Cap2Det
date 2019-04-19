@@ -1,0 +1,16 @@
+syntax = "proto2";
+
+message PostProcess {
+  // Score thresh hold for NMS.
+  optional float score_thresh = 1 [default = 1e-6];
+
+  // IoU threshold to check the overlap.
+  optional float iou_thresh = 2 [default = 0.5];
+
+  // Maximum detections per class.
+  optional int32 max_size_per_class = 3 [default = 100];
+
+  // Maximum total detections.
+  optional int32 max_total_size = 4 [default = 300];
+}
+

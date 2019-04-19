@@ -1,14 +1,7 @@
 syntax = "proto2";
 
-import "protos/model.proto";
-import "protos/hyperparams.proto";
-
-
-message FRCNNModel {
-  extend Model {
-    optional FRCNNModel ext = 1010;
-  }
-
+// FRCNN configs.
+message FRCNN {
   // Feature extractor config.
   optional FasterRcnnFeatureExtractor feature_extractor = 1;
 
@@ -32,31 +25,11 @@ message FRCNNModel {
   // Keep probability of the dropout layer.
   optional float dropout_keep_prob = 6 [default = 1.0];
 
+  // If true, add a dropout layer after extracting feature map.
+  optional bool dropout_on_feature_map = 7 [default = true];
+
   // Path to the pre-trained checkpoint.
-  optional string checkpoint_path = 7;
-
-  // Path to the detection vocabulary file.
-  optional string vocabulary_file = 8;
-
-  // Hyperparams of all the FC layers.
-  optional Hyperparams fc_hyperparams = 9;
-
-  // Attention targets
-  //  LOGITS: apply attention to the final logits
-  //  FEATURES: apply attention to the penultimate features.
-  enum AttentionTarget {
-    LOGITS = 1;
-    FEATURES = 2;
-  }
-
-  // Specify the attention target.
-  optional AttentionTarget attention_target = 10 [default = LOGITS];
-
-  // OICR iterations.
-  optional int32 oicr_iterations = 11 [default = 0];
-
-  // OICR IoU threshold.
-  optional float oicr_iou_threshold = 12 [default = 0.5];
+  optional string checkpoint_path = 8;
 }
 
 message FasterRcnnFeatureExtractor {

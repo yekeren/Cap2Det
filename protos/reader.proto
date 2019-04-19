@@ -5,7 +5,7 @@ import "protos/image_resizer.proto";
 
 message Reader {
   // Pattern of the input files.
-  optional string input_pattern = 1;
+  repeated string input_pattern = 1;
 
   // Cycle length of interleave call.
   optional int32 interleave_cycle_length = 2 [default = 2];
@@ -24,6 +24,9 @@ message Reader {
 
   // Batch size.
   optional int32 batch_size = 8 [default = 32];
+
+  // If false, do not decode image.
+  optional bool decode_image = 10 [default = true];
 
   // Height of the resized image, depreated, see `image_resizer` for update.
   optional int32 image_height = 11 [deprecated = true];
@@ -49,12 +52,10 @@ message Reader {
   // If true, shuffle proposals at training time.
   optional bool shuffle_proposals = 24 [default = false];
 
-  // If true, resize the image randomly.
-  optional bool batch_resize_scale = 25 [default = false];
+  // Randomly resize image according to these scales values.
+  repeated float batch_resize_scale_value = 25;
 
-  // Lower bound of the resizing factor.
-  optional float batch_resize_scale_lower = 26 [default = 0.7];
-
-  // Upper bound of the resizing factor.
-  optional float batch_resize_scale_upper = 27 [default = 1.0];
+  // Shard to read, in the format of '0/3', '1/3', '2/3'.
+  // The denominator denotes the number of shards. The numerator denotes the shard to export.
+  optional string shard_indicator = 26;
 }

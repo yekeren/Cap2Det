@@ -5,6 +5,7 @@ message ImageResizer {
     DefaultResizer default_resizer = 1;
     FixedShapeResizer fixed_shape_resizer = 2;
     KeepAspectRatioResizer keep_aspect_ratio_resizer = 3;
+    RandomScaleResizer random_scale_resizer = 4;
   }
 }
 
@@ -20,10 +21,11 @@ message FixedShapeResizer {
 }
 
 message KeepAspectRatioResizer {
-  // Desired size of the larger image dimension in pixels.
-  optional int32 max_dimension = 1 [default = 600];
+  // Desired size of the smaller image dimension in pixels.
+  optional int32 min_dimension = 3 [default = 600];
+}
 
-  // Whether to pad the image with zeros so the output spatial size is
-  // [max_dimension, max_simension].
-  optional bool pad_to_max_dimension = 2 [default = false];
+message RandomScaleResizer {
+  // Desired size of the larger image dimension in pixels.
+  repeated int32 max_dimension = 1;
 }

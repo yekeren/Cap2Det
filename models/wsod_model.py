@@ -14,10 +14,9 @@ from core import imgproc
 from core import utils
 from core import plotlib
 from core.standard_fields import InputDataFields
-#from core.standard_fields import WSODPredictions
+from core.standard_fields import WSODPredictions
 from core.standard_fields import DetectionResultFields
 from core.training_utils import build_hyperparams
-from core import init_grid_anchors
 from models import utils as model_utils
 from core import box_utils
 from core import builder as function_builder
@@ -47,19 +46,9 @@ class Model(ModelBase):
     options = model_proto
 
     self._vocabulary_list = model_utils.read_vocabulary(options.vocabulary_file)
-
     self._num_classes = len(self._vocabulary_list)
-
-    self._feature_extractor = build_faster_rcnn_feature_extractor(
-        options.feature_extractor, is_training,
-        options.inplace_batchnorm_update)
-
-    self._pcl_preprocess_fn = function_builder.build_post_processor(
-        options.pcl_preprocess)
-
     self._midn_post_process_fn = function_builder.build_post_processor(
         options.midn_post_process)
-
     self._oicr_post_process_fn = function_builder.build_post_processor(
         options.oicr_post_process)
 
@@ -79,7 +68,9 @@ class Model(ModelBase):
       categorical_col = tf.feature_column.categorical_column_with_vocabulary_list(
           key='name_to_id', vocabulary_list=vocabulary_list, num_oov_buckets=1)
       indicator_col = tf.feature_column.indicator_column(categorical_col)
-      indicator = tf.feature_column.input_layer({'name_to_id': class_texts},
+      indicator = tf.feature_column.input_layer({
+          'name_to_id': class_texts
+      },
                                                 feature_columns=[indicator_col])
       labels = tf.cast(indicator[:, :-1] > 0, tf.float32)
       labels.set_shape([batch, len(vocabulary_list)])
@@ -209,6 +200,7 @@ class Model(ModelBase):
     Returns:
       predictions: dict of prediction results keyed by name.
     """
+    predictions = {}
     options = self._model_proto
     is_training = self._is_training
 
@@ -223,14 +215,21 @@ class Model(ModelBase):
 
     # FRCNN.
 
-    proposal_features = self._extract_frcnn_feature(inputs, num_proposals,
-                                                    proposals)
+    proposal_features = model_utils.extract_frcnn_feature(
+        inputs, num_proposals, proposals, options.frcnn_options, is_training)
+
+    # Build MIDN network.
+    #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
+
+    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
+      (midn_class_logits, midn_proposal_scores,
+       midn_proba_r_given_c) = self._build_midn_network(
+           num_proposals, proposal_features, num_classes=self._num_classes)
 
     # Build the OICR network.
     #   proposal_scores shape = [batch, max_num_proposals, 1 + num_classes].
     #   See `Multiple Instance Detection Network with OICR`.
 
-    predictions = {}
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       for i in range(options.oicr_iterations):
         predictions[WSODPredictions.oicr_proposal_scores + '_at_{}'.format(
@@ -240,28 +239,7 @@ class Model(ModelBase):
                 activation_fn=None,
                 scope='oicr/iter{}'.format(i + 1))
 
-    if post_process and options.HasField('pcl_preprocess'):
-      proposal_scores = tf.nn.softmax(
-          tf.stop_gradient(proposal_scores), axis=-1)[:, :, 1:]
-      (num_proposals, proposals,
-       _, _, additional_fields) = self._pcl_preprocess_fn(
-           proposals, proposal_scores, {'proposal_features': proposal_features})
-      proposal_features = additional_fields['proposal_features']
-
-    # Build MIDN network.
-    #   proba_r_given_c shape = [batch, max_num_proposals, num_classes].
-
-    with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
-      if options.attention_type == wsod_model_pb2.WSODModel.PER_CLASS:
-        (midn_class_logits, midn_proposal_scores,
-         midn_proba_r_given_c) = self._build_midn_network(
-             num_proposals, proposal_features, num_classes=self._num_classes)
-      elif options.attention_type == wsod_model_pb2.WSODModel.PER_CLASS_TANH:
-        (midn_class_logits, midn_proposal_scores,
-         midn_proba_r_given_c) = self._build_midn_network_tanh(
-             num_proposals, proposal_features, num_classes=self._num_classes)
-      else:
-        raise ValueError('Invalid attention type.')
+    # Set the predictions.
 
     predictions.update({
         DetectionResultFields.class_labels:
@@ -357,41 +335,16 @@ class Model(ModelBase):
 
       # Extract image-level labels.
 
-      if not options.caption_as_label:
-        labels = self._extract_class_label(
-            class_texts=examples[InputDataFields.object_texts],
-            vocabulary_list=self._vocabulary_list)
-      else:
-        labels = self._extract_class_label(
-            class_texts=slim.flatten(examples[InputDataFields.caption_strings]),
-            vocabulary_list=self._vocabulary_list)
-
-      # A prediction model from caption to class
+      labels = self._extract_class_label(
+          class_texts=examples[InputDataFields.object_texts],
+          vocabulary_list=self._vocabulary_list)
 
       # Loss of the multi-instance detection network.
 
-      midn_class_logits = predictions[WSODPredictions.midn_class_logits]
       losses = tf.nn.sigmoid_cross_entropy_with_logits(
-          labels=labels, logits=midn_class_logits)
-
-      # Hard-negative mining.
-
-      if options.midn_loss_negative_mining == wsod_model_pb2.WSODModel.NONE:
-        if options.classification_loss_use_sum:
-          assert False
-        else:
-          if options.caption_as_label:
-            loss_masks = tf.to_float(tf.reduce_any(labels > 0, axis=-1))
-            loss_dict['midn_cross_entropy_loss'] = tf.multiply(
-                tf.squeeze(
-                    utils.masked_avg(
-                        tf.reduce_mean(losses, axis=-1), mask=loss_masks,
-                        dim=0)), options.midn_loss_weight)
-          else:
-            loss_dict['midn_cross_entropy_loss'] = tf.multiply(
-                tf.reduce_mean(losses), options.midn_loss_weight)
-      else:
-        raise ValueError('Invalid negative mining method.')
+          labels=labels, logits=predictions[WSODPredictions.midn_class_logits])
+      loss_dict['midn_cross_entropy_loss'] = tf.multiply(
+          tf.reduce_mean(losses), options.midn_loss_weight)
 
       # Losses of the online instance classifier refinement network.
 
@@ -430,26 +383,6 @@ class Model(ModelBase):
 
         proposal_scores_0 = tf.nn.softmax(proposal_scores_1, axis=-1)
 
-      # Min-entropy loss.
-
-      mask = tf.sequence_mask(
-          num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-      proba_r_given_c = predictions[WSODPredictions.midn_proba_r_given_c]
-      losses = tf.log(proba_r_given_c + _EPSILON)
-      losses = tf.squeeze(
-          utils.masked_sum_nd(data=losses, mask=mask, dim=1), axis=1)
-      min_entropy_loss = tf.reduce_mean(tf.reduce_sum(losses * labels, axis=1))
-      min_entropy_loss = tf.multiply(min_entropy_loss,
-                                     options.min_entropy_loss_weight)
-
-      max_proba = tf.reduce_mean(
-          utils.masked_maximum(
-              data=proba_r_given_c, mask=tf.expand_dims(mask, -1), dim=1))
-      tf.losses.add_loss(min_entropy_loss)
-
-    tf.summary.scalar('loss/min_entropy_loss', min_entropy_loss)
-    tf.summary.scalar('loss/max_proba', max_proba)
-
     return loss_dict
 
   def build_evaluation(self, predictions, examples, **kwargs):
@@ -464,5 +397,6 @@ class Model(ModelBase):
         update_op) tuple. see tf.metrics for details.
     """
     return {}
+
 
 register_model_class(wsod_model_pb2.WSODModel.ext, Model)

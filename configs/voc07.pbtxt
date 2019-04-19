@@ -41,24 +41,24 @@ eval_reader{
   max_num_proposals: 500
 }
 model {
-  [NOD2Model.ext] {
-    feature_extractor {
-      type: 'faster_rcnn_inception_v2'
-      first_stage_features_stride: 16
+  [WSODModel.ext] {
+    frcnn_options {
+      feature_extractor {
+        type: 'faster_rcnn_inception_v2'
+        first_stage_features_stride: 16
+      }
+      initial_crop_size: 14
+      maxpool_kernel_size: 2
+      maxpool_stride: 2
+      dropout_keep_prob: 0.5
+      dropout_on_feature_map: false
+      checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
     }
     eval_min_dimension: 1200
     eval_min_dimension: 800
     eval_min_dimension: 600
     eval_min_dimension: 400
-    initial_crop_size: 14
-    maxpool_kernel_size: 2
-    maxpool_stride: 2
-    dropout_keep_prob: 0.5
-    dropout_on_feature_map: false
-    checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
-    vocabulary_file: 'configs/voc_vocab.txt'
-    attention_type: PER_CLASS
-    midn_loss_negative_mining: NONE
+    vocabulary_file: 'configs/voc.vocab'
     oicr_loss_weight: 0.5
     oicr_iterations: 3
     oicr_iou_threshold: 0.6
@@ -100,7 +100,6 @@ train_config {
     decay_rate: 1.0
     staircase: true
   }
-  moving_average_decay: 0.0
   optimizer {
     adagrad {
     }

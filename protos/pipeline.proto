@@ -75,6 +75,8 @@ message TrainConfig {
 
   // Gradient multipliers.
   repeated GradientMultiplier gradient_multiplier = 16;
+
+  optional float max_gradient_norm = 17 [default = 0.0];
 }
 
 message LearningRateDecay {

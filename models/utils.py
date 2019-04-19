@@ -12,6 +12,8 @@ from core import plotlib
 from core import box_utils
 #from protos import cnn_pb2
 from object_detection.core.post_processing import batch_multiclass_non_max_suppression
+from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
+from pattern.en import pluralize, singularize
 
 _SMALL_NUMBER = 1e-10
 
@@ -704,7 +706,8 @@ def visl_proposals(image,
     width: Width of the visualized image.
   """
   with tf.name_scope('visl_proposals'):
-    image = tf.image.resize_images(image, [height, width])
+    if height is not None and width is not None:
+      image = tf.image.resize_images(image, [height, width])
     image = tf.cast(image, tf.uint8)
     image = plotlib.draw_rectangles(
         image, boxes=proposals[:, :top_k, :], color=plotlib.RED, fontscale=1.0)
@@ -937,111 +940,126 @@ def calc_pairwise_similarity(feature_a,
   return tf.reduce_sum(dot_product, axis=-1)
 
 
-def expand_vocabulary(vocabulary_list):
-  mapping = {
-      'person': [
-          'person', 'girl', 'boy', 'man', 'woman', 'kid', 'child', 'chef',
-          'baker', 'people', 'adult', 'rider', 'children', 'baby', 'worker',
-          'passenger', 'sister', 'biker', 'policeman', 'officer', 'lady',
-          'cowboy', 'bride', 'groom', 'male', 'female', 'guy', 'traveler',
-          'mother', 'father', 'gentleman', 'pitcher', 'player', 'skier',
-          'snowboarder', 'skater', 'skateboarder', 'foreigner', 'caller',
-          'offender', 'coworker', 'trespasser', 'patient', 'politician',
-          'soldier', 'grandchild', 'serviceman', 'walker', 'drinker', 'doctor',
-          'bicyclist', 'thief', 'buyer', 'teenager', 'student', 'camper',
-          'driver', 'solider', 'hunter', 'shopper', 'villager', 'cop'
-      ],
-      'bicycle': ['bicycle', 'bike', 'unicycle', 'minibike', 'trike'],
-      'car': [
-          'car', 'automobile', 'van', 'minivan', 'sedan', 'suv', 'hatchback',
-          'cab', 'jeep', 'coupe', 'taxicab', 'limo', 'taxi'
-      ],
-      'motorcycle': [
-          'motorcycle', 'scooter', 'motor bike', 'motor cycle', 'motorbike',
-          'moped'
-      ],
-      'airplane': [
-          'airplane', 'jetliner', 'plane', 'air plane', 'monoplane', 'aircraft',
-          'jet', 'airbus', 'biplane', 'seaplane bus', 'minibus', 'trolley'
-      ],
-      'bus': ['bus', 'minibus', 'schoolbus', 'trolley'],
-      'train': ['train', 'locomotive', 'tramway', 'caboose'],
-      'truck': ['truck', 'pickup', 'lorry', 'hauler', 'firetruck'],
-      'boat': [
-          'boat', 'ship', 'liner', 'sailboat', 'motorboat', 'dinghy',
-          'powerboat', 'speedboat', 'canoe', 'skiff', 'yacht', 'kayak',
-          'catamaran', 'pontoon', 'houseboat', 'vessel', 'rowboat', 'trawler',
-          'ferryboat', 'watercraft', 'tugboat', 'schooner', 'barge', 'ferry',
-          'sailboard', 'paddleboat', 'lifeboat', 'freighter', 'steamboat',
-          'riverboat', 'surfboard', 'battleship', 'steamship'
-      ],
-      'traffic light': [
-          'traffic light', 'street light', 'traffic signal', 'stop light',
-          'streetlight', 'stoplight'
-      ],
-      'fire hydrant': ['fire hydrant', 'hydrant'],
-      'stop sign': ['stop sign', 'street sign'],
-      'parking meter': ['parking meter'],
-      'bench': ['bench', 'pew'],
-      'cat': ['cat', 'kitten', 'feline', 'tabby'],
-      'dog': [
-          'dog', 'puppy', 'beagle', 'pup', 'chihuahua', 'schnauzer',
-          'dachshund', 'rottweiler', 'canine', 'pitbull', 'collie', 'pug',
-          'terrier', 'poodle', 'labrador', 'doggie', 'doberman', 'mutt',
-          'doggy', 'spaniel', 'bulldog', 'sheepdog', 'weimaraner', 'corgi',
-          'cocker', 'greyhound', 'retriever', 'brindle', 'hound', 'whippet',
-          'husky'
-      ],
-      'horse': [
-          'horse', 'colt', 'pony', 'racehorse', 'stallion', 'equine', 'mare',
-          'foal', 'palomino', 'mustang', 'clydesdale', 'bronc', 'bronco'
-      ],
-      'sheep': ['sheep', 'lamb', 'goat', 'ram', 'cattle', 'ewe'],
-      'cow': [
-          'cow', 'cattle', 'oxen', 'ox', 'calf', 'ewe', 'holstein', 'heifer',
-          'buffalo', 'bull', 'zebu', 'bison'
-      ],
-      'elephant': ['elephant'],
-      'bear': ['bear', 'panda'],
-      'zebra': ['zebra'],
-      'giraffe': ['giraffe'],
-      'backpack': ['backpack', 'knapsack'],
-      'umbrella': ['umbrella'],
-      'handbag': ['handbag', 'handbag', 'wallet', 'purse', 'briefcase'],
-      'tie': ['tie'],
-      'suitcase': ['suitcase', 'suit case', 'luggage'],
-      'frisbee': ['frisbee'],
-      'skis': ['skis', 'ski'],
-      'snowboard': ['snowboard'],
-      'sports ball': [
-          'sports ball', 'baseball', 'ball', 'football', 'soccer', 'basketball',
-          'softball', 'volleyball', 'pinball', 'fastball', 'racquetball'
-      ],
-      'kite': ['kite'],
-      'baseball bat': ['baseball bat'],
-      'baseball glove': ['baseball glove'],
-      'skateboard': ['skateboard'],
-      'surfboard':
-      ['surfboard', 'longboard', 'skimboard', 'shortboard', 'wakeboard'],
-      'tennis racket': ['tennis racket'],
-      'bottle': ['bottle'],
-      'wine glass': ['wine glass'],
-      'cup': ['cup'],
-      'fork': ['fork'],
-      'knife': ['knife', 'pocketknife', 'knive']
-  }
-  assert len(mapping) == 80, len(mapping)
+def read_synonyms(filename):
+  """Reads synonyms dict.
 
+  Args:
+    filename: Path to the synonyms dict.
+  Returns:
+    A dict mapping from synonym word to its original form.
+  """
   data = {}
-  for i, w in enumerate(vocabulary_list):
-    data[w] = i
-  assert len(data) == 80, len(data)
-
-  for w, synonyms in mapping.items():
-    for s in synonyms:
-      data[s] = data[w]
-
-  import pdb
-  pdb.set_trace()
-  j = 1
+  with open(filename, 'r') as fid:
+    for line in fid.readlines():
+      word, synonyms = line.strip('\n').split('\t')
+      for w in synonyms.split(','):
+        data[w] = word
+        data[pluralize(w)] = word
   return data
+
+
+# For coco synonyms mapping.
+class_synonyms = {
+    'traffic light': 'stoplight',
+    'fire hydrant': 'hydrant',
+    'stop sign': 'sign',
+    'parking meter': 'meter',
+    'sports ball': 'ball',
+    'baseball bat': 'bat',
+    'baseball glove': 'glove',
+    'tennis racket': 'racket',
+    'wine glass': 'wineglass',
+    'hot dog': 'hotdog',
+    'potted plant': 'plant',
+    'dining table': 'table',
+    'cell phone': 'cellphone',
+    'teddy bear': 'teddy',
+    'hair drier': 'hairdryer',
+}
+
+
+def substitute_class_names(vocabulary_list):
+  return [class_synonyms.get(x, x) for x in vocabulary_list]
+
+
+def extract_frcnn_feature(inputs,
+                          num_proposals,
+                          proposals,
+                          options,
+                          is_training=False):
+  """Extracts Fast-RCNN feature from image.
+
+  Args:
+    feature_extractor: An FRCNN feature extractor instance.
+    inputs: A [batch, height, width, channels] float tensor.
+    num_proposals: A [batch] int tensor.
+    proposals: A [batch, max_num_proposals, 4] float tensor.
+    options:
+    is_training:
+
+  Returns:
+    proposal_features: A [batch, max_num_proposals, feature_dims] float 
+      tensor.
+  """
+  feature_extractor = build_faster_rcnn_feature_extractor(
+      options.feature_extractor, is_training, options.inplace_batchnorm_update)
+
+  # Extract `features_to_crop` from the original image.
+  #   shape = [batch, feature_height, feature_width, feature_depth].
+
+  preprocessed_inputs = feature_extractor.preprocess(inputs)
+
+  (features_to_crop, _) = feature_extractor.extract_proposal_features(
+      preprocessed_inputs, scope='first_stage_feature_extraction')
+
+  if options.dropout_on_feature_map:
+    features_to_crop = slim.dropout(
+        features_to_crop,
+        keep_prob=options.dropout_keep_prob,
+        is_training=is_training)
+
+  # Crop `flattened_proposal_features_maps`.
+  #   shape = [batch*max_num_proposals, crop_size, crop_size, feature_depth].
+
+  batch, max_num_proposals, _ = utils.get_tensor_shape(proposals)
+  box_ind = tf.expand_dims(tf.range(batch), axis=-1)
+  box_ind = tf.tile(box_ind, [1, max_num_proposals])
+
+  cropped_regions = tf.image.crop_and_resize(
+      features_to_crop,
+      boxes=tf.reshape(proposals, [-1, 4]),
+      box_ind=tf.reshape(box_ind, [-1]),
+      crop_size=[options.initial_crop_size, options.initial_crop_size])
+
+  flattened_proposal_features_maps = slim.max_pool2d(
+      cropped_regions,
+      [options.maxpool_kernel_size, options.maxpool_kernel_size],
+      stride=options.maxpool_stride)
+
+  # Extract `proposal_features`,
+  #   shape = [batch, max_num_proposals, feature_dims].
+
+  (box_classifier_features
+  ) = feature_extractor.extract_box_classifier_features(
+      flattened_proposal_features_maps, scope='second_stage_feature_extraction')
+
+  flattened_roi_pooled_features = tf.reduce_mean(
+      box_classifier_features, [1, 2], name='AvgPool')
+  flattened_roi_pooled_features = slim.dropout(
+      flattened_roi_pooled_features,
+      keep_prob=options.dropout_keep_prob,
+      is_training=is_training)
+
+  proposal_features = tf.reshape(flattened_roi_pooled_features,
+                                 [batch, max_num_proposals, -1])
+
+  # Assign weights from pre-trained checkpoint.
+
+  tf.train.init_from_checkpoint(
+      options.checkpoint_path,
+      assignment_map={"/": "first_stage_feature_extraction/"})
+  tf.train.init_from_checkpoint(
+      options.checkpoint_path,
+      assignment_map={"/": "second_stage_feature_extraction/"})
+
+  return proposal_features

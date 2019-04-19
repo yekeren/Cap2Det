@@ -108,31 +108,47 @@ def _create_model_fn(pipeline_proto, is_chief=True):
 
       # Apply gradient multipliers.
 
+      trainable_variables = []
       gradient_multipliers = {}
       for var in variables_to_train:
+        add_to_trainable_variables = True
+
         for multiplier in train_config.gradient_multiplier:
           if var.op.name.startswith(multiplier.scope):
             if var.op.name in gradient_multipliers:
               tf.logging.warn('Override gradient multiplier: %s', var.op.name)
             gradient_multipliers[var.op.name] = multiplier.multiplier
-            tf.logging.info('Set gradient multiplier for %s', var.op.name)
-        tf.logging.info('Variable to train: %s, %s', var.op.name,
-                        var.get_shape())
+            if multiplier.multiplier > 0:
+              add_to_trainable_variables = True
+            else:
+              add_to_trainable_variables = False
+
+        # Add to trainable variables.
+        if add_to_trainable_variables:
+          trainable_variables.append(var)
+          tf.logging.info('Variable to train: %s, %s', var.op.name,
+                          var.get_shape())
+        elif var.op.name in gradient_multipliers:
+          del gradient_multipliers[var.op.name]
+
       tf.logging.info('Apply gradient multipliers: \n%s',
                       json.dumps(gradient_multipliers, indent=2))
 
       def transform_grads_fn(grads):
-        if not gradient_multipliers: 
-          return grads
-        return tf.contrib.training.multiply_gradients(grads,
-                                                      gradient_multipliers)
+        if gradient_multipliers:
+          grads = tf.contrib.training.multiply_gradients(
+              grads, gradient_multipliers)
+        if train_config.HasField('max_gradient_norm'):
+          grads = tf.contrib.training.clip_gradient_norms(
+              grads, max_norm=train_config.max_gradient_norm)
+        return grads
 
       # The train_op is required for mode `TRAIN`.
 
       train_op = tf.contrib.training.create_train_op(
           total_loss,
           optimizer,
-          variables_to_train=variables_to_train,
+          variables_to_train=trainable_variables,
           transform_grads_fn=transform_grads_fn,
           summarize_gradients=True)
 

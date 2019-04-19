@@ -192,7 +192,7 @@ class NODPredictions(object):
   midn_proba_h_given_c = 'midn_proba_h_given_c'
 
 
-class NOD2Predictions(object):
+class WSODPredictions(object):
   """Predictions in the NOD model."""
   midn_class_logits = 'midn_class_logits'
   midn_class_scores_sigmoid = 'midn_class_scores_sigmoid'

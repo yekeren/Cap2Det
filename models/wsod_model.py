@@ -8,8 +8,6 @@ import numpy as np
 from models.model_base import ModelBase
 from protos import wsod_model_pb2
 
-from nets import nets_factory
-from nets import vgg
 from core import imgproc
 from core import utils
 from core import plotlib

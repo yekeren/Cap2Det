@@ -1,0 +1,77 @@
+syntax = "proto2";
+
+import "protos/model.proto";
+import "protos/hyperparams.proto";
+import "protos/frcnn.proto";
+import "protos/post_process.proto";
+
+
+message Cap2DetModel {
+  extend Model {
+    optional Cap2DetModel ext = 1454;
+  }
+
+  // FRCNN configs.
+  optional FRCNN frcnn_options = 1;
+
+  // Path to the open vocabulary file.
+  optional string open_vocabulary_file = 10;
+
+  optional string open_vocabulary_glove_file = 9;
+
+  // Path to the detection vocabulary file.
+  optional string vocabulary_file = 11;
+
+  // Hyperparams of all the FC layers.
+  optional Hyperparams fc_hyperparams = 12;
+
+  // OICR iterations.
+  optional int32 oicr_iterations = 21 [default = 0];
+
+  // OICR IoU threshold.
+  optional float oicr_iou_threshold = 22 [default = 0.5];
+
+  // OICR start step.
+  optional int32 oicr_start_step = 23 [default = 0];
+
+  // Config of the MIDN post processor.
+  optional PostProcess midn_post_process = 31;
+
+  // Config of the OICR post processor.
+  optional PostProcess oicr_post_process = 32;
+
+  // Resolutions at inference time.
+  repeated int32 eval_min_dimension = 34;
+
+  // If true, use proba_r_given_c as oicr_score_0.
+  optional bool oicr_use_proba_r_given_c = 36 [default = true];
+
+  // MIDN loss weight.
+  optional float midn_loss_weight = 91 [default = 1.0];
+
+  // OICR loss weight.
+  optional float oicr_loss_weight = 92 [default = 1.0];
+
+  optional int32 embedding_dims = 94 [default = 50];
+
+  optional Hyperparams text_fc_hyperparams = 98;
+
+  optional bool train_word_embedding = 99 [default = true];
+
+  enum LabelStrategem {
+    GROUNDTRUTH = 1;
+    EXACT_MATCH = 2;
+    EXTEND_MATCH = 3;
+    W2V_MATCH = 4;
+    TEXT_CLSF = 5;
+  }
+  optional LabelStrategem label_option = 103 [default = GROUNDTRUTH];
+
+  optional string synonyms_file = 104;
+
+  optional string text_classifier_checkpoint_path = 105;
+
+  optional int32 text_hidden_units = 106 [default = 400];
+
+  optional float soft_label_threshold = 107 [default = 0.5];
+}

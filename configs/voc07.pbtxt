@@ -6,8 +6,6 @@ train_reader{
   map_num_parallel_calls: 10
   prefetch_buffer_size: 500
   batch_size: 2
-  image_channels: 3
-  max_caption_length: 30
   image_resizer {
     keep_aspect_ratio_resizer {
       min_dimension: 1000
@@ -31,8 +29,6 @@ eval_reader{
   map_num_parallel_calls: 5
   prefetch_buffer_size: 500
   batch_size: 1
-  image_channels: 3
-  max_caption_length: 30
   image_resizer {
     keep_aspect_ratio_resizer {
       min_dimension: 1000
@@ -68,7 +64,7 @@ model {
       activation: RELU_6
       regularizer {
         l2_regularizer {
-          weight: 0.000001
+          weight: 0.00001
         }
       }
       initializer {

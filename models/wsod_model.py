@@ -19,7 +19,6 @@ from models import utils as model_utils
 from core import box_utils
 from core import builder as function_builder
 
-from object_detection.builders import hyperparams_builder
 from models.registry import register_model_class
 
 slim = tf.contrib.slim
@@ -361,8 +360,8 @@ class Model(ModelBase):
           axis=-1)
 
       global_step = tf.train.get_or_create_global_step()
-      #oicr_loss_mask = tf.cast(global_step > options.oicr_start_step,
-      #                         tf.float32)
+      # oicr_loss_mask = tf.cast(global_step > options.oicr_start_step,
+      #                          tf.float32)
       oicr_start_step = max(1, options.oicr_start_step)
       oicr_loss_mask = tf.where(
           global_step > options.oicr_start_step, 1.0,

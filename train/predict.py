@@ -438,7 +438,7 @@ def _run_evaluation(pipeline_proto,
         filename = os.path.join(FLAGS.results_dir,
                                 FLAGS.pipeline_proto.split('/')[-1])
         filename = filename.replace('pbtxt',
-                                    'csv') + 'iter_{}'.format(oicr_iter)
+                                    'csv') + '.iter_{}'.format(oicr_iter)
         with open(filename, 'w') as fid:
           fid.write('{}\n'.format(eval_count))
           fid.write('\n')

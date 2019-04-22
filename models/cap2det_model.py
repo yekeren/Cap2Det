@@ -551,10 +551,12 @@ class Model(ModelBase):
     # Using exact-matching labels.
 
     if options.label_option == cap2det_model_pb2.Cap2DetModel.EXACT_MATCH:
-      return self._extract_exact_match_label(
+      labels_gt = self._extract_exact_match_label(
           class_texts=slim.flatten(examples[InputDataFields.caption_strings]),
           vocabulary_list=model_utils.substitute_class_names(
               self._vocabulary_list))
+      examples['debug_groundtruth_labels'] = labels_gt
+      return labels_gt
 
     # Using extended matching.
     if options.label_option == cap2det_model_pb2.Cap2DetModel.EXTEND_MATCH:
@@ -581,6 +583,8 @@ class Model(ModelBase):
               self._vocabulary_list),
           open_vocabulary_list=self._open_vocabulary_list,
           embedding_dims=options.embedding_dims)
+      examples['debug_groundtruth_labels'] = labels_gt
+      examples['debug_pseudo_labels'] = labels_ps
 
       select_op = tf.reduce_any(labels_gt > 0, axis=-1)
       labels = tf.where(select_op, labels_gt, labels_ps)

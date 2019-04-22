@@ -24,6 +24,8 @@ from core import box_utils
 
 from object_detection.utils import object_detection_evaluation
 from object_detection.metrics import coco_evaluation
+from object_detection.utils.visualization_utils import draw_bounding_box_on_image_array
+
 
 from tensorflow.python.platform import tf_logging as logging
 
@@ -66,7 +68,9 @@ flags.DEFINE_string('detection_result_dir', '',
 flags.DEFINE_integer('visl_size', 500, '')
 flags.DEFINE_string('visl_file_path', '', '')
 
-flags.DEFINE_float('min_visl_detection_score', 0.01, '')
+flags.DEFINE_boolean('eval_best_model', False, '')
+
+flags.DEFINE_float('min_visl_detection_score', 0.05, '')
 
 flags.DEFINE_boolean('run_once', False, '')
 flags.DEFINE_boolean('eval_coco_on_voc', False, '')
@@ -136,43 +140,56 @@ def _visualize(examples, categories, filename):
         for caption_string, caption_length in zip(
             caption_strings[:num_captions], caption_lengths[:num_captions]):
           captions.append(' '.join(
-              [x.decode('utf8') for x in caption_string[:caption_length]]))
+              [x.decode('ascii') for x in caption_string[:caption_length]]))
         caption_annot = '</br>'.join(captions)
 
       # Generated image-level ground-truth.
 
       labels_gt_annot = ''
-      labels_ps_annot = ''
-      if 'debug_groundtruth_labels' in example and 'debug_pseudo_labels' in example:
+      if 'debug_groundtruth_labels' in example:
         labels_gt = [
             categories[i]
             for i, v in enumerate(example['debug_groundtruth_labels'])
             if v > 0
         ]
+        labels_gt_annot = ','.join(labels_gt)
+
+      labels_ps_annot = ''
+      if 'debug_pseudo_labels' in example:
         labels_ps = [
             categories[i]
             for i, v in enumerate(example['debug_pseudo_labels'])
             if v > 0
         ]
-        labels_gt_annot = ','.join(labels_gt)
         labels_ps_annot = ','.join(labels_ps)
         if labels_ps_annot:
           labels_ps_annot = 'pseudo:' + labels_ps_annot
 
       # Image canvas.
 
+      max_height = 300
+      ratio = max_height / image_height
+      image_height = max_height
+      image_width = int(image_width * ratio)
+
       image = cv2.resize(image, (image_width, image_height))
+      img_base64 = plotlib._py_convert_to_base64(image[:, :, ::-1])
 
       # Image with ground-truth boxes.
 
-      image_with_gt = plotlib._py_draw_rectangles_v2(
-          image,
-          num_gt_boxes,
-          gt_boxes,
-          np.zeros_like(gt_labels, dtype=np.float32),
-          gt_labels,
-          color=plotlib.BLUE,
-          show_score=False)
+      image_with_gt = image.copy()
+      for i in range(num_gt_boxes):
+        ymin, xmin, ymax, xmax = gt_boxes[i]
+        label = gt_labels[i].decode('ascii')
+        draw_bounding_box_on_image_array(
+            image_with_gt,
+            ymin,
+            xmin,
+            ymax,
+            xmax,
+            color='red',
+            display_str_list=[label],
+            use_normalized_coordinates=True)
       image_with_gt = cv2.cvtColor(image_with_gt, cv2.COLOR_RGB2BGR)
       gt_base64 = plotlib._py_convert_to_base64(image_with_gt)
 
@@ -184,66 +201,90 @@ def _visualize(examples, categories, filename):
 
       num_dt_boxes = min(i, num_dt_boxes)
       dt_labels = np.array(
-          [categories[int(x) - 1].encode('utf8') for x in dt_labels])
+          [categories[int(x) - 1].encode('ascii') for x in dt_labels])
 
       recall_mask, precision_mask = box_utils.py_evaluate_precision_and_recall(
           num_gt_boxes, gt_boxes, gt_labels, num_dt_boxes, dt_boxes, dt_labels)
-      image_with_dt = plotlib._py_draw_rectangles_v2(
-          image,
-          num_dt_boxes,
-          dt_boxes,
-          dt_scores,
-          dt_labels,
-          color=plotlib.RED,
-          show_score=True)
-      image_with_dt = plotlib._py_draw_rectangles_v2(
-          image_with_dt,
-          precision_mask.astype(np.int32).sum(),
-          dt_boxes[precision_mask],
-          dt_scores[precision_mask],
-          dt_labels[precision_mask],
-          color=plotlib.GREEN,
-          show_score=True)
+      image_with_dt = image.copy()
+
+      for i in range(num_dt_boxes):
+        ymin, xmin, ymax, xmax = dt_boxes[i]
+        score = dt_scores[i]
+        label = '%s:%d%%' % (dt_labels[i].decode('ascii'),
+                             int(score * 100 + 0.5))
+        draw_bounding_box_on_image_array(
+            image_with_dt,
+            ymin,
+            xmin,
+            ymax,
+            xmax,
+            color='yellow',
+            display_str_list=[label],
+            use_normalized_coordinates=True)
+      for i in range(num_dt_boxes):
+        if precision_mask[i]:
+          ymin, xmin, ymax, xmax = dt_boxes[i]
+          score = dt_scores[i]
+          label = '%s:%d%%' % (dt_labels[i].decode('ascii'),
+                               int(score * 100 + 0.5))
+          draw_bounding_box_on_image_array(
+              image_with_dt,
+              ymin,
+              xmin,
+              ymax,
+              xmax,
+              color='lime',
+              display_str_list=[label],
+              use_normalized_coordinates=True)
+
       image_with_dt = cv2.cvtColor(image_with_dt, cv2.COLOR_RGB2BGR)
       dt_base64 = plotlib._py_convert_to_base64(image_with_dt)
 
       # Write html file.
 
       fid.write('<tr>')
+      fid.write('<td>%s</td>' % (image_id.decode('ascii')))
+      fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (img_base64))
       fid.write(
-          '<td><img src="data:image/jpg;base64,%s"></br>%s</br>%s</br>%s</td>' %
-          (gt_base64, caption_annot, labels_gt_annot, labels_ps_annot))
+          '<td><img src="data:image/jpg;base64,%s"></br>%s</br>GT: %s</br>PS: %s</td>'
+          % (gt_base64, caption_annot, labels_gt_annot, labels_ps_annot))
       fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (dt_base64))
       fid.write('</tr>')
     fid.write('</table>')
   tf.logging.info('File is written to %s, #images=%i', filename, example_index)
 
 
-coco_to_voc = {
-    5: 1,
-    2: 2,
-    15: 3,
-    9: 4,
-    40: 5,
-    6: 6,
-    3: 7,
-    16: 8,
-    57: 9,
-    20: 10,
-    61: 11,
-    17: 12,
-    18: 13,
-    4: 14,
-    1: 15,
-    59: 16,
-    19: 17,
-    58: 18,
-    7: 19,
-    63: 20,
-}
-
-
 def _convert_coco_result_to_voc(boxes, scores, classes):
+  """Converts coco detection results to voc results.
+
+  Args:
+    boxes: [num_boxes, 4] numpy array.
+    scores: [num_boxes] numpy array.
+    classes: [num_boxes] numpy array.
+  """
+  coco_to_voc = {
+      5: 1,
+      2: 2,
+      15: 3,
+      9: 4,
+      40: 5,
+      6: 6,
+      3: 7,
+      16: 8,
+      57: 9,
+      20: 10,
+      61: 11,
+      17: 12,
+      18: 13,
+      4: 14,
+      1: 15,
+      59: 16,
+      19: 17,
+      58: 18,
+      7: 19,
+      63: 20,
+  }
+
   det_boxes, det_scores, det_classes = [], [], []
   for box, score, cls in zip(boxes, scores, classes):
     if int(cls) in coco_to_voc:
@@ -277,9 +318,9 @@ def _run_evaluation(pipeline_proto,
 
     if eval_count == 0:
       summary = tf.Summary().FromString(summary_bytes)
-
       class_labels = [
-          x.decode('utf8') for x in examples[DetectionResultFields.class_labels]
+          x.decode('ascii')
+          for x in examples[DetectionResultFields.class_labels]
       ]
 
     for i in range(batch_size):
@@ -311,7 +352,7 @@ def _run_evaluation(pipeline_proto,
                     image_width),
                 'groundtruth_classes':
                 np.array([
-                    category_to_id[x.decode('utf8')]
+                    category_to_id[x.decode('ascii')]
                     for x in groundtruth_classes[:num_groundtruths]
                 ]),
                 'groundtruth_difficult':
@@ -351,8 +392,10 @@ def _run_evaluation(pipeline_proto,
 
       if len(visl_examples) < FLAGS.max_visl_examples:
         visl_example = {
-            InputDataFields.image_id: examples[InputDataFields.image_id][i],
-            InputDataFields.image: examples[InputDataFields.image][i],
+            InputDataFields.image_id:
+            examples[InputDataFields.image_id][i],
+            InputDataFields.image:
+            examples[InputDataFields.image][i],
             InputDataFields.image_height:
             examples[InputDataFields.image_height][i],
             InputDataFields.image_width:
@@ -363,26 +406,23 @@ def _run_evaluation(pipeline_proto,
             examples[InputDataFields.object_boxes][i],
             InputDataFields.object_texts:
             examples[InputDataFields.object_texts][i],
-            DetectionResultFields.num_detections: num_detections,
-            DetectionResultFields.detection_boxes: detection_boxes,
-            DetectionResultFields.detection_scores: detection_scores,
-            DetectionResultFields.detection_classes: detection_classes
+            DetectionResultFields.num_detections:
+            num_detections,
+            DetectionResultFields.detection_boxes:
+            detection_boxes,
+            DetectionResultFields.detection_scores:
+            detection_scores,
+            DetectionResultFields.detection_classes:
+            detection_classes
         }
-        if InputDataFields.num_captions in examples:
-          visl_example[InputDataFields.num_captions] = examples[
-              InputDataFields.num_captions][i]
-        if InputDataFields.caption_strings in examples:
-          visl_example[InputDataFields.caption_strings] = examples[
-              InputDataFields.caption_strings][i]
-        if InputDataFields.caption_lengths in examples:
-          visl_example[InputDataFields.caption_lengths] = examples[
-              InputDataFields.caption_lengths][i]
-        if 'debug_groundtruth_labels' in examples:
-          visl_example['debug_groundtruth_labels'] = examples[
-              'debug_groundtruth_labels'][i]
-        if 'debug_pseudo_labels' in examples:
-          visl_example['debug_pseudo_labels'] = examples['debug_pseudo_labels'][
-              i]
+        for name in [
+            InputDataFields.num_captions, InputDataFields.caption_strings,
+            InputDataFields.caption_lengths,
+            InputDataFields.pseudo_groundtruth_prediction,
+            'debug_groundtruth_labels', 'debug_pseudo_labels'
+        ]:
+          if name in examples:
+            visl_example[name] = examples[name][i]
         visl_examples.append(visl_example)
 
       # Write to detection result file.
@@ -392,7 +432,7 @@ def _run_evaluation(pipeline_proto,
         detection_boxes = box_utils.py_coord_norm_to_abs(
             detection_boxes[:num_detections], image_height, image_width)
 
-        image_id = int(image_id.decode('utf8'))
+        image_id = int(image_id.decode('ascii'))
         for i in range(num_detections):
           ymin, xmin, ymax, xmax = detection_boxes[i]
           ymin, xmin, ymax, xmax = int(ymin), int(xmin), int(ymax), int(xmax)
@@ -544,8 +584,10 @@ def main(_):
   else:
 
     # Run once.
-    #checkpoint_path = get_best_model_checkpoint(FLAGS.saved_ckpts_dir)
-    checkpoint_path = tf.train.latest_checkpoint(FLAGS.model_dir)
+    if FLAGS.eval_best_model:
+      checkpoint_path = get_best_model_checkpoint(FLAGS.saved_ckpts_dir)
+    else:
+      checkpoint_path = tf.train.latest_checkpoint(FLAGS.model_dir)
     tf.logging.info('Start to evaluate checkpoint %s.', checkpoint_path)
 
     summary, metric = _run_evaluation(

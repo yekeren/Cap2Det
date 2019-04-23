@@ -1,40 +1,44 @@
 train_reader{
-  input_pattern: "output/VOC2007_trainval_ssbox_quality.record*"
-  interleave_cycle_length: 1
-  is_training: true
-  shuffle_buffer_size: 2000
-  map_num_parallel_calls: 10
-  prefetch_buffer_size: 500
-  batch_size: 2
-  image_resizer {
-    keep_aspect_ratio_resizer {
-      min_dimension: 1000
+  wsod_reader {
+    input_pattern: "output/VOC2007_trainval_ssbox_quality.record*"
+    interleave_cycle_length: 1
+    is_training: true
+    shuffle_buffer_size: 2000
+    map_num_parallel_calls: 10
+    prefetch_buffer_size: 500
+    batch_size: 2
+    image_resizer {
+      keep_aspect_ratio_resizer {
+        min_dimension: 1000
+      }
     }
+    preprocess_options {
+      random_flip_left_right_prob: 0.5
+    }
+    max_num_proposals: 500
+    shuffle_proposals: false
+    batch_resize_scale_value: 1.2
+    batch_resize_scale_value: 0.8
+    batch_resize_scale_value: 0.6
+    batch_resize_scale_value: 0.4
   }
-  preprocess_options {
-    random_flip_left_right_prob: 0.5
-  }
-  max_num_proposals: 500
-  shuffle_proposals: false
-  batch_resize_scale_value: 1.2
-  batch_resize_scale_value: 0.8
-  batch_resize_scale_value: 0.6
-  batch_resize_scale_value: 0.4
 }
 eval_reader{
-  input_pattern: "output/VOC2007_test_ssbox_quality.record*"
-  interleave_cycle_length: 1
-  is_training: false
-  shuffle_buffer_size: 500
-  map_num_parallel_calls: 5
-  prefetch_buffer_size: 500
-  batch_size: 1
-  image_resizer {
-    keep_aspect_ratio_resizer {
-      min_dimension: 1000
+  wsod_reader {
+    input_pattern: "output/VOC2007_test_ssbox_quality.record*"
+    interleave_cycle_length: 1
+    is_training: false
+    shuffle_buffer_size: 500
+    map_num_parallel_calls: 5
+    prefetch_buffer_size: 500
+    batch_size: 1
+    image_resizer {
+      keep_aspect_ratio_resizer {
+        min_dimension: 1000
+      }
     }
+    max_num_proposals: 500
   }
-  max_num_proposals: 500
 }
 model {
   [WSODModel.ext] {

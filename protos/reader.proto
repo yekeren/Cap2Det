@@ -4,6 +4,48 @@ import "protos/preprocess.proto";
 import "protos/image_resizer.proto";
 
 message Reader {
+  oneof reader_oneof {
+    WSODReader wsod_reader = 1;
+    AdViSEReader advise_reader = 2;
+  }
+}
+
+message AdViSEReader {
+  // Pattern of the input files.
+  repeated string input_pattern = 1;
+
+  // Cycle length of interleave call.
+  optional int32 interleave_cycle_length = 2 [default = 2];
+
+  // If True, repeat the dataset and shuffle the batch.
+  optional bool is_training = 4 [default = false];
+
+  // Shuffle buffer size.
+  optional int32 shuffle_buffer_size = 5 [default = 1000];
+
+  // Number of parallel calls.
+  optional int32 map_num_parallel_calls = 6 [default = 1];
+
+  // Prefetch buffer size.
+  optional int32 prefetch_buffer_size = 7 [default = 200];
+
+  // Batch size.
+  optional int32 batch_size = 8 [default = 32];
+
+  // Feature dimensions.
+  optional int32 feature_dimensions = 9 [default = 1536];
+
+  // Symbol dimensions.
+  optional int32 symbol_dimensions = 10 [default = 54];
+
+  // See core.standard_fields.TFOpertions.decode_*.
+  repeated string decode_annotation = 11;
+
+  // Maximum full text length.
+  optional int32 max_full_text_length =12;
+}
+
+message WSODReader {
   // Pattern of the input files.
   repeated string input_pattern = 1;
 

@@ -564,11 +564,14 @@ class Model(ModelBase):
       for syno, orig in self._synonyms.items():
         cat_to_id[syno] = cat_to_id[orig]
       for orig, syno in model_utils.class_synonyms.items():
-        cat_to_id[syno] = cat_to_id[orig]
-      return self._extract_extend_match_label(
+        if orig in cat_to_id:
+          cat_to_id[syno] = cat_to_id[orig]
+      labels_gt = self._extract_extend_match_label(
           class_texts=slim.flatten(examples[InputDataFields.caption_strings]),
           vocabulary_dict=cat_to_id,
           num_classes=self._num_classes)
+      examples['debug_groundtruth_labels'] = labels_gt
+      return labels_gt
 
     # Using w2v-matchiong.
 

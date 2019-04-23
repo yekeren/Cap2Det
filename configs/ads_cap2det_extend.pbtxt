@@ -55,10 +55,11 @@ model {
     eval_min_dimension: 600
     eval_min_dimension: 400
     vocabulary_file: 'configs/ads.vocab'
+    synonyms_file: 'configs/ads_synonyms.vocab'
     open_vocabulary_file: 'configs/ads_open_vocab.vocab'
     open_vocabulary_glove_file: 'configs/ads_open_vocab_300d.npy'
     embedding_dims: 300
-    label_option: EXACT_MATCH
+    label_option: EXTEND_MATCH
     oicr_loss_weight: 0.5
     oicr_iterations: 3
     oicr_iou_threshold: 0.6
@@ -95,7 +96,8 @@ model {
   }
 }
 train_config {
-  max_steps: 500000
+  max_steps: 100000
+  moving_average_decay: 0.99
   learning_rate: 0.01
   learning_rate_decay {
     decay_steps: 40000

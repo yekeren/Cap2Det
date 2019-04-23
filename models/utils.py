@@ -955,6 +955,7 @@ def read_synonyms(filename):
       for w in synonyms.split(','):
         data[w] = word
         data[pluralize(w)] = word
+        data[singularize(w)] = word
   return data
 
 

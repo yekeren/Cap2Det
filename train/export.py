@@ -233,9 +233,9 @@ def main(_):
     tf.logging.info("Override shard_indicator: %s", FLAGS.shard_indicator)
 
   if FLAGS.input_pattern:
-    while len(pipeline_proto.eval_reader.input_pattern) > 0:
-      pipeline_proto.eval_reader.input_pattern.pop()
-    pipeline_proto.eval_reader.input_pattern.append(FLAGS.input_pattern)
+    while len(pipeline_proto.eval_reader.wsod_reader.input_pattern) > 0:
+      pipeline_proto.eval_reader.wsod_reader.input_pattern.pop()
+    pipeline_proto.eval_reader.wsod_reader.input_pattern.append(FLAGS.input_pattern)
     tf.logging.info("Override input_pattern: %s", FLAGS.input_pattern)
 
   tf.logging.info("Pipeline configure: %s", '=' * 128)

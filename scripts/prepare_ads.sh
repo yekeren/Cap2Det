@@ -28,14 +28,14 @@ export CUDA_VISIBLE_DEVICES=9
 #    >> "log/${i}.log" 2>&1 &
 #done
 
-python tools/create_ads_tf_record.py \
-  --alsologtostderr \
-  --number_of_parts=20 \
-  --image_data_dir="raw_data/ads_train_images" \
-  --proposal_data="raw_data/ads_train_ssbox_quality/" \
-  --annotation_path="raw_data/qa.json/" \
-  --output_path="output/ads_trainval_ssbox_quality.record" \
-  || exit -1
+#python tools/create_ads_tf_record.py \
+#  --alsologtostderr \
+#  --number_of_parts=20 \
+#  --image_data_dir="raw_data/ads_train_images" \
+#  --proposal_data="raw_data/ads_train_ssbox_quality/" \
+#  --annotation_path="raw_data/qa.json/" \
+#  --output_path="output/ads_trainval_ssbox_quality.record" \
+#  || exit -1
 
 #python tools/create_ads_vocab.py \
 #  --alsologtostderr \
@@ -48,6 +48,13 @@ python tools/create_ads_tf_record.py \
 #  --min_word_freq="10" \
 #  || exit -1
 
+python tools/create_ads_class_vocab.py \
+  --alsologtostderr \
+  --category_file="configs/ads.vocab" \
+  --image_data_dir="raw_data/ads_train_images" \
+  --annotation_path="raw_data/qa.json/" \
+  --min_word_freq="10" \
+  || exit -1
 echo done
 exit 0
 

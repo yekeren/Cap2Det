@@ -86,6 +86,32 @@ try:
 except AttributeError:
   pass
 
+STANDARD_COLORS = [
+    'AliceBlue', 'Chartreuse', 'Aqua', 'Aquamarine', 'Azure', 'Beige', 'Bisque',
+    'BlanchedAlmond', 'BlueViolet', 'BurlyWood', 'CadetBlue', 'AntiqueWhite',
+    'Chocolate', 'Coral', 'CornflowerBlue', 'Cornsilk', 'Crimson', 'Cyan',
+    'DarkCyan', 'DarkGoldenRod', 'DarkGrey', 'DarkKhaki', 'DarkOrange',
+    'DarkOrchid', 'DarkSalmon', 'DarkSeaGreen', 'DarkTurquoise', 'DarkViolet',
+    'DeepPink', 'DeepSkyBlue', 'DodgerBlue', 'FireBrick', 'FloralWhite',
+    'ForestGreen', 'Fuchsia', 'Gainsboro', 'GhostWhite', 'Gold', 'GoldenRod',
+    'Salmon', 'Tan', 'HoneyDew', 'HotPink', 'IndianRed', 'Ivory', 'Khaki',
+    'Lavender', 'LavenderBlush', 'LawnGreen', 'LemonChiffon', 'LightBlue',
+    'LightCoral', 'LightCyan', 'LightGoldenRodYellow', 'LightGray', 'LightGrey',
+    'LightGreen', 'LightPink', 'LightSalmon', 'LightSeaGreen', 'LightSkyBlue',
+    'LightSlateGray', 'LightSlateGrey', 'LightSteelBlue', 'LightYellow', 'Lime',
+    'LimeGreen', 'Linen', 'Magenta', 'MediumAquaMarine', 'MediumOrchid',
+    'MediumPurple', 'MediumSeaGreen', 'MediumSlateBlue', 'MediumSpringGreen',
+    'MediumTurquoise', 'MediumVioletRed', 'MintCream', 'MistyRose', 'Moccasin',
+    'NavajoWhite', 'OldLace', 'Olive', 'OliveDrab', 'Orange', 'OrangeRed',
+    'Orchid', 'PaleGoldenRod', 'PaleGreen', 'PaleTurquoise', 'PaleVioletRed',
+    'PapayaWhip', 'PeachPuff', 'Peru', 'Pink', 'Plum', 'PowderBlue', 'Purple',
+    'Red', 'RosyBrown', 'RoyalBlue', 'SaddleBrown', 'Green', 'SandyBrown',
+    'SeaGreen', 'SeaShell', 'Sienna', 'Silver', 'SkyBlue', 'SlateBlue',
+    'SlateGray', 'SlateGrey', 'Snow', 'SpringGreen', 'SteelBlue', 'GreenYellow',
+    'Teal', 'Thistle', 'Tomato', 'Turquoise', 'Violet', 'Wheat', 'White',
+    'WhiteSmoke', 'Yellow', 'YellowGreen'
+]
+
 
 def _load_pipeline_proto(filename):
   """Loads pipeline proto from file.
@@ -200,6 +226,7 @@ def _visualize(examples, categories, filename):
           break
 
       num_dt_boxes = min(i, num_dt_boxes)
+      dt_classes = dt_labels - 1
       dt_labels = np.array(
           [categories[int(x) - 1].encode('ascii') for x in dt_labels])
 
@@ -207,7 +234,7 @@ def _visualize(examples, categories, filename):
           num_gt_boxes, gt_boxes, gt_labels, num_dt_boxes, dt_boxes, dt_labels)
       image_with_dt = image.copy()
 
-      for i in range(num_dt_boxes):
+      for i in range(num_dt_boxes - 1, -1, -1):
         ymin, xmin, ymax, xmax = dt_boxes[i]
         score = dt_scores[i]
         label = '%s:%d%%' % (dt_labels[i].decode('ascii'),
@@ -218,10 +245,10 @@ def _visualize(examples, categories, filename):
             xmin,
             ymax,
             xmax,
-            color='yellow',
+            color=STANDARD_COLORS[int(dt_classes[i])],
             display_str_list=[label],
             use_normalized_coordinates=True)
-      for i in range(num_dt_boxes):
+      for i in range(num_dt_boxes - 1, -1, -1):
         if precision_mask[i]:
           ymin, xmin, ymax, xmax = dt_boxes[i]
           score = dt_scores[i]
@@ -244,7 +271,7 @@ def _visualize(examples, categories, filename):
 
       fid.write('<tr>')
       fid.write('<td>%s</td>' % (image_id.decode('ascii')))
-      fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (img_base64))
+      #fid.write('<td><img src="data:image/jpg;base64,%s"></td>' % (img_base64))
       fid.write(
           '<td><img src="data:image/jpg;base64,%s"></br>%s</br>GT: %s</br>PS: %s</td>'
           % (gt_base64, caption_annot, labels_gt_annot, labels_ps_annot))
@@ -511,9 +538,9 @@ def main(_):
     tf.logging.info("Override shard_indicator: %s", FLAGS.shard_indicator)
 
   if FLAGS.input_pattern:
-    while len(pipeline_proto.eval_reader.input_pattern) > 0:
-      pipeline_proto.eval_reader.input_pattern.pop()
-    pipeline_proto.eval_reader.input_pattern.append(FLAGS.input_pattern)
+    while len(pipeline_proto.eval_reader.wsod_reader.input_pattern) > 0:
+      pipeline_proto.eval_reader.wsod_reader.input_pattern.pop()
+    pipeline_proto.eval_reader.wsod_reader.input_pattern.append(FLAGS.input_pattern)
     tf.logging.info("Override input_pattern: %s", FLAGS.input_pattern)
 
   tf.logging.info("Pipeline configure: %s", '=' * 128)

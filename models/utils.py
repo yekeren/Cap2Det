@@ -14,6 +14,7 @@ from core import box_utils
 from object_detection.core.post_processing import batch_multiclass_non_max_suppression
 from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
 from pattern.en import pluralize, singularize
+import numpy as np
 
 _SMALL_NUMBER = 1e-10
 
@@ -227,7 +228,22 @@ def read_vocabulary(filename):
     vocabulary_list: a list of string.
   """
   with tf.gfile.GFile(filename, "r") as fid:
-    vocabulary_list = [word.strip('\n') for word in fid.readlines()]
+    vocabulary_list = [line.strip('\n').split('\t')[0] for line in fid.readlines()]
+  return vocabulary_list
+
+
+def read_vocabulary_with_frequency(filename):
+  """Reads vocabulary list from file.
+
+  Args:
+    filename: path to the file storing vocabulary info.
+
+  Returns:
+    vocabulary_list: a list of string.
+  """
+  with tf.gfile.GFile(filename, "r") as fid:
+    vocabulary_list = [line.strip('\n').split('\t') for line in fid.readlines()]
+    vocabulary_list = [(x[0], int(x[1])) for x in vocabulary_list]
   return vocabulary_list
 
 
@@ -1064,3 +1080,32 @@ def extract_frcnn_feature(inputs,
       assignment_map={"/": "second_stage_feature_extraction/"})
 
   return proposal_features
+
+
+def load_glove_data(filename):
+  """Loads the glove data in .txt format.
+
+  Args:
+    filename: Path to the GloVe data.
+
+  Returns:
+    word2vec: A dict mapping from words to their embedding vectors.
+    dims: Dimensions of the word embedding.
+  """
+  with open(filename, 'r', encoding='utf-8') as fp:
+    lines = fp.readlines()
+
+  dims = len(lines[0].strip('\n').split()) - 1
+
+  word2vec = {}
+  for line_index, line in enumerate(lines):
+    items = line.strip('\n').split()
+    word, vec = items[0], np.array([float(v) for v in items[1:]])
+    assert vec.shape[0] == dims
+
+    word2vec[word] = vec
+    if line_index % 10000== 0:
+      tf.logging.info('On load GloVe %s/%s', line_index, len(lines))
+  return word2vec, dims
+
+

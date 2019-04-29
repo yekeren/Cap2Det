@@ -169,7 +169,7 @@ def masked_avg_nd(data, mask, dim=1):
   return masked_avgs
 
 
-def masked_softmax(data, mask, dim=1):
+def masked_softmax(data, mask, dim=-1):
   """Computes the axis wise softmax over chosen elements.
 
   Args:

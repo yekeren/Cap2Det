@@ -9,6 +9,16 @@ from core.standard_fields import TFExampleDataFields
 from protos import reader_pb2
 
 
+_OP_PARSE_SINGLE_EXAMPLE = 'reader/op_parse_single_example'
+_OP_DECODE_IMAGE = 'reader/op_decode_image'
+_OP_DECODE_SLOGAN = 'reader/op_decode_slogan'
+_OP_DECODE_GROUNDTRUTH = 'reader/op_decode_groundtruth'
+_OP_DECODE_QUESTION = 'reader/op_decode_question'
+
+_MAX_TEXT_FRAGMENTS = 30
+_MAX_TEXT_LENGTH = 100
+
+
 class TFExampleDataFields(object):
   """Names of the fields of the tf.train.Example."""
   image_id = "image_id"
@@ -43,13 +53,6 @@ class InputDataFields(object):
   question_text_length = 'question_text_length'
 
 
-_OP_PARSE_SINGLE_EXAMPLE = 'reader/op_parse_single_example'
-_OP_DECODE_IMAGE = 'reader/op_decode_image'
-_OP_DECODE_SLOGAN = 'reader/op_decode_slogan'
-_OP_DECODE_GROUNDTRUTH = 'reader/op_decode_groundtruth'
-_OP_DECODE_QUESTION = 'reader/op_decode_question'
-
-
 def _parse_texts(tokens, offsets, lengths):
   """Parses and pads texts.
 
@@ -66,6 +69,7 @@ def _parse_texts(tokens, offsets, lengths):
     text_lengths: [num_texts] tf.int64 tensor.
   """
   max_text_length = tf.maximum(tf.reduce_max(lengths), 0)
+  max_text_length = tf.minimum(max_text_length, _MAX_TEXT_LENGTH)
 
   num_offsets = tf.shape(offsets)[0]
   num_lengths = tf.shape(lengths)[0]
@@ -92,7 +96,7 @@ def _parse_texts(tokens, offsets, lengths):
         text_lengths: aggregated text lengths tensor.
       """
       offset = offsets[i]
-      length = lengths[i]
+      length = tf.minimum(lengths[i], max_text_length)
 
       pad = tf.fill(tf.expand_dims(max_text_length - length, axis=0), "")
       text = tokens[offset:offset + length]
@@ -112,6 +116,10 @@ def _parse_texts(tokens, offsets, lengths):
             tf.TensorShape([None, None]),
             tf.TensorShape([None])
         ])
+
+  num_texts = tf.minimum(_MAX_TEXT_FRAGMENTS, num_texts)
+  text_strings = text_strings[:num_texts, :]
+  text_lengths = text_lengths[:num_texts]
 
   return num_texts, text_strings, text_lengths
 

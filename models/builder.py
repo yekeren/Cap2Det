@@ -5,11 +5,13 @@ from __future__ import print_function
 from protos import model_pb2
 from protos import wsod_model_pb2
 from protos import cap2det_model_pb2
+from protos import advise_basic_model_pb2
 from protos import advise_gcn_model_pb2
 from models.registry import get_registered_model_classes
 
 import models.wsod_model
 import models.cap2det_model
+import models.advise_basic_model
 import models.advise_gcn_model
 
 

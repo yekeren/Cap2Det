@@ -64,13 +64,6 @@ def _create_model_fn(pipeline_proto, is_chief=True):
     eval_metric_ops = None
     training_hooks = []
 
-    #update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    #for op in update_ops:
-    #  if 'cnn' not in op.name:
-    #    tf.logging.info(op.name)
-    #import pdb
-    #pdb.set_trace()
-
     if tf.estimator.ModeKeys.TRAIN == mode:
 
       train_config = pipeline_proto.train_config

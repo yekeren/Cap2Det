@@ -434,26 +434,25 @@ class Model(ModelBase):
     if options.HasField('max_norm'):
       max_norm = options.max_norm
 
-    stmt_table = tf.contrib.lookup.index_table_from_tensor(
-        self._stmt_vocab_list, num_oov_buckets=1)
     stmt_text_feature = tf.nn.embedding_lookup(
-        self._word_embedding(
+        params=self._word_embedding(
             self._stmt_vocab_list,
             options.embedding_dims,
             init_width=_INIT_WIDTH,
             scope='stmt_word_embedding'),
-        stmt_table.lookup(stmt_text_string),
+        ids=tf.contrib.lookup.index_table_from_tensor(
+            self._stmt_vocab_list, num_oov_buckets=1).lookup(stmt_text_string),
         max_norm=max_norm)
 
-    slogan_table = tf.contrib.lookup.index_table_from_tensor(
-        self._slgn_vocab_list, num_oov_buckets=1)
     slogan_text_feature = tf.nn.embedding_lookup(
-        self._word_embedding(
+        params=self._word_embedding(
             self._slgn_vocab_list,
             options.embedding_dims,
             init_width=_INIT_WIDTH,
             scope='slgn_word_embedding'),
-        slogan_table.lookup(slogan_text_string),
+        ids=tf.contrib.lookup.index_table_from_tensor(
+            self._slgn_vocab_list,
+            num_oov_buckets=1).lookup(slogan_text_string),
         max_norm=max_norm)
 
     # Image representation.
@@ -475,6 +474,10 @@ class Model(ModelBase):
           output_units=options.output_units,
           is_training=is_training,
           scope='image')
+
+    tf.summary.histogram('gcn/input_image_repr', image_repr)
+    tf.summary.histogram('gcn/input_slogan_text_feature', slogan_text_feature)
+    tf.summary.histogram('gcn/input_stmt_text_feature', stmt_text_feature)
 
     # Slogan representation.
     #   slogan_text_size shape = [batch_i]

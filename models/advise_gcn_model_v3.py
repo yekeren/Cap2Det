@@ -155,7 +155,7 @@ class Model(ModelBase):
       feature2: A [batch, max_node_num2, dims2] float tensor.
 
     Returns:
-      feature_2to1 shape = [batch, max_node_num1, max_node_num1]
+      feature_2to1 shape = [batch, max_node_num1, max_node_num2]
     """
     with tf.variable_scope(scope):
       feature1 = tf.contrib.layers.fully_connected(
@@ -171,30 +171,6 @@ class Model(ModelBase):
       dot_product = tf.matmul(feature1, feature2, transpose_b=True)
       dot_product = tf.div(dot_product, np.sqrt(dims))
     return dot_product
-
-    # with tf.variable_scope(scope):
-    #   weights = tf.get_variable(
-    #       name='weights'.format(scope),
-    #       shape=[dims1, dims2],
-    #       trainable=True,
-    #       initializer=tf.initializers.random_normal(mean=0.0, stddev=0.003))
-    #   #weights = weights + 0.01 * tf.eye(num_rows=dims1, num_columns=dims2)
-
-    # feature1_reshaped = tf.reshape(feature1, [-1, dims1])
-    # dot_product = tf.matmul(feature1_reshaped, weights)
-    # dot_product = tf.reshape(dot_product, [batch1, max_node_num1, dims2])
-
-    # dot_product = tf.matmul(dot_product, feature2, transpose_b=True)
-    # dot_product = tf.div(dot_product, np.sqrt(dims1))
-    # return dot_product
-
-    # dims = feature2.get_shape()[-1].value
-    # feature1_proj = tf.contrib.layers.fully_connected(
-    #     inputs=feature1, num_outputs=dims, activation_fn=None, scope=scope)
-    # dot_product = tf.matmul(feature1_proj, feature2, transpose_b=True)
-    # dot_product = tf.div(dot_product, np.sqrt(dims))
-
-    # return dot_product
 
   def _node_embedding(self, feature_list, batch_norm=False, is_training=False):
     """Gathers node embeddings.
@@ -227,6 +203,7 @@ class Model(ModelBase):
                         mask2,
                         feature3,
                         mask3,
+                        use_diag_part=True,
                         scope=None):
     """Computes adjacency matrix.
 
@@ -251,7 +228,11 @@ class Model(ModelBase):
           feature1, feature1, scope='feature_1to1')
       feature_2to1 = self._pairwise_transform(
           feature1, feature2, scope='feature_2to1')
-      feature_1to3 = tf.expand_dims(tf.matrix_diag_part(feature_1to1), axis=1)
+      if use_diag_part:
+        feature_1to3 = tf.expand_dims(tf.matrix_diag_part(feature_1to1), axis=1)
+      else:
+        feature_1to3 = tf.reduce_max(
+            feature_1to1, axis=1, keepdims=True)
 
     tf.summary.histogram('gcn/feature2to1', feature_2to1)
     tf.summary.histogram('gcn/feature1to1', feature_1to1)
@@ -290,8 +271,11 @@ class Model(ModelBase):
         feature_1to3,
         tf.fill(dims=[batch, 1, max_node_num2], value=0.0),
         tf.fill(dims=[batch, 1, 1], value=0.0)
-    ], axis=2)
-    mask = tf.concat([mask1, tf.zeros_like(mask2), tf.zeros_like(mask3)], axis=1)
+    ],
+                                axis=2)
+    mask = tf.concat([mask1, tf.zeros_like(mask2),
+                      tf.zeros_like(mask3)],
+                     axis=1)
     sentinal_proba = utils.masked_softmax(
         data=sentinal_logits, mask=tf.expand_dims(mask, 1), dim=2)
 
@@ -325,11 +309,10 @@ class Model(ModelBase):
      slogan_text_length) = (examples[InputDataFields.slogan_num],
                             examples[InputDataFields.slogan_text_string],
                             examples[InputDataFields.slogan_text_length])
-    (groundtruth_text_size, groundtruth_text_string,
-     groundtruth_text_length) = (
-         examples[InputDataFields.groundtruth_text_size],
-         examples[InputDataFields.groundtruth_text_string],
-         examples[InputDataFields.groundtruth_text_length])
+    (groundtruth_num, groundtruth_text_string, groundtruth_text_length) = (
+        examples[InputDataFields.groundtruth_num],
+        examples[InputDataFields.groundtruth_text_string],
+        examples[InputDataFields.groundtruth_text_length])
 
     if options.add_image_as_a_roi:
       roi_num = tf.add(roi_num, 1)
@@ -344,7 +327,7 @@ class Model(ModelBase):
 
       (image_ids_gathered, stmt_text_string,
        stmt_text_length) = model_utils.gather_in_batch_captions(
-           image_id, groundtruth_text_size, groundtruth_text_string,
+           image_id, groundtruth_num, groundtruth_text_string,
            groundtruth_text_length)
     else:
 
@@ -353,24 +336,23 @@ class Model(ModelBase):
       batch = image_id.get_shape()[0].value
       assert batch == 1, "We only support `batch == 1` for evaluation."
 
-      (question_text_size, question_text_string,
-       question_text_length) = (examples[InputDataFields.question_text_size],
+      (question_num, question_text_string,
+       question_text_length) = (examples[InputDataFields.question_num],
                                 examples[InputDataFields.question_text_string],
                                 examples[InputDataFields.question_text_length])
 
-      stmt_text_string = question_text_string[0][:question_text_size[0], :]
-      stmt_text_length = question_text_length[0][:question_text_size[0]]
+      stmt_text_string = question_text_string[0][:question_num[0], :]
+      stmt_text_length = question_text_length[0][:question_num[0]]
 
-      groundtruth_mask = self._mask_groundtruth(
+      stmt_mask = self._mask_groundtruth(
           groundtruth_strings=groundtruth_text_string[0]
-          [:groundtruth_text_size[0], :],
-          question_strings=question_text_string[0][:question_text_size[0], :])
+          [:groundtruth_num[0], :],
+          question_strings=question_text_string[0][:question_num[0], :])
 
       image_ids_gathered = tf.where(
-          groundtruth_mask,
-          x=tf.fill(tf.shape(groundtruth_mask), image_id[0]),
-          y=tf.fill(
-              tf.shape(groundtruth_mask), tf.constant(-1, dtype=tf.int64)))
+          stmt_mask,
+          x=tf.fill(tf.shape(stmt_mask), image_id[0]),
+          y=tf.fill(tf.shape(stmt_mask), tf.constant(-1, dtype=tf.int64)))
 
     # Word embedding processes.
 
@@ -451,12 +433,13 @@ class Model(ModelBase):
           slogan_mask,
           zero_repr,
           zero_mask,
+          use_diag_part=options.use_diag_part,
           scope='adjacency')
 
       nodes = tf.matmul(adjacency, nodes)
 
       nodes = slim.dropout(tf.nn.relu6(nodes), 0.5, is_training=is_training)
-      nodes= tf.contrib.layers.fully_connected(
+      nodes = tf.contrib.layers.fully_connected(
           inputs=nodes,
           num_outputs=nodes.get_shape()[-1].value,
           activation_fn=None,

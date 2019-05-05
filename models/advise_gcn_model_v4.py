@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 from models.model_base import ModelBase
-from protos import advise_gcn_model_v2_pb2
+from protos import advise_gcn_model_v4_pb2
 
 from core import utils
 from core.training_utils import build_hyperparams
@@ -35,12 +35,12 @@ class Model(ModelBase):
     """Initializes the model.
 
     Args:
-      model_proto: an instance of advise_gcn_model_v2_pb2.AdViSEGCN
+      model_proto: an instance of advise_gcn_model_v4_pb2.AdViSEGCN
       is_training: if True, training graph will be built.
     """
     super(Model, self).__init__(model_proto, is_training)
 
-    if not isinstance(model_proto, advise_gcn_model_v2_pb2.AdViSEGCNV2Model):
+    if not isinstance(model_proto, advise_gcn_model_v4_pb2.AdViSEGCNV4Model):
       raise ValueError('The model_proto has to be an instance of AdViSEGCN.')
 
     options = model_proto
@@ -155,7 +155,7 @@ class Model(ModelBase):
       feature2: A [batch, max_node_num2, dims2] float tensor.
 
     Returns:
-      feature_1to2 shape = [batch, max_node_num1, max_node_num1]
+      feature_2to1 shape = [batch, max_node_num1, max_node_num2]
     """
     with tf.variable_scope(scope):
       feature1 = tf.contrib.layers.fully_connected(
@@ -172,40 +172,11 @@ class Model(ModelBase):
       dot_product = tf.div(dot_product, np.sqrt(dims))
     return dot_product
 
-    # with tf.variable_scope(scope):
-    #   weights = tf.get_variable(
-    #       name='weights'.format(scope),
-    #       shape=[dims1, dims2],
-    #       trainable=True,
-    #       initializer=tf.initializers.random_normal(mean=0.0, stddev=0.003))
-    #   #weights = weights + 0.01 * tf.eye(num_rows=dims1, num_columns=dims2)
-
-    # feature1_reshaped = tf.reshape(feature1, [-1, dims1])
-    # dot_product = tf.matmul(feature1_reshaped, weights)
-    # dot_product = tf.reshape(dot_product, [batch1, max_node_num1, dims2])
-
-    # dot_product = tf.matmul(dot_product, feature2, transpose_b=True)
-    # dot_product = tf.div(dot_product, np.sqrt(dims1))
-    # return dot_product
-
-    # dims = feature2.get_shape()[-1].value
-    # feature1_proj = tf.contrib.layers.fully_connected(
-    #     inputs=feature1, num_outputs=dims, activation_fn=None, scope=scope)
-    # dot_product = tf.matmul(feature1_proj, feature2, transpose_b=True)
-    # dot_product = tf.div(dot_product, np.sqrt(dims))
-
-    # return dot_product
-
-  def _node_embedding(self,
-                      feature_list,
-                      mask_list,
-                      batch_norm=False,
-                      is_training=False):
+  def _node_embedding(self, feature_list, batch_norm=False, is_training=False):
     """Gathers node embeddings.
     
     Args:
       feature_list: A list of [batch_i, max_node_num, embedding_dims] float tensors.
-      mask_list: A list of [batch_i, max_node_num] boolean tensors.
 
     Returns:
       feature: A [batch_i, max_node-num, embedding_dims] float tensor.
@@ -223,62 +194,78 @@ class Model(ModelBase):
     for i, feature in enumerate(feature_list):
       tf.summary.histogram('gcn/feature_{}'.format(i + 1), feature)
 
-    return tf.concat(feature_list, axis=1), tf.concat(mask_list, axis=1)
+    return tf.concat(feature_list, axis=1)
 
   def _adjacency_matrix(self,
                         feature1,
-                        feature2,
                         mask1,
+                        feature2,
                         mask2,
                         inference_dims=100,
+                        connect_roi_to_slogan=False,
                         scope=None):
     """Computes adjacency matrix.
 
     Args:
       feature1: A [batch_i, max_node_num1, embedding_dims] float tensor.
-      feature2: A [batch_i, max_node_num2, embedding_dims] float tensor.
       mask1: A [batch, max_node_num1] boolean tensor.
+      feature2: A [batch_i, max_node_num2, embedding_dims] float tensor.
       mask2: A [batch, max_node_num2] boolean tensor.
+      inference_dims: Dimensions for the inference projection layer.
+      connect_roi_to_slogan: If True, connect rois to slogan.
 
     Returns:
       adjacency: A [batch_i, max_node_num1 + max_node_num2, max_node_num1 + max_node_num2] float tensor.
     """
-    _, max_node_num1, dims1 = utils.get_tensor_shape(feature1)
-    _, max_node_num2, dims2 = utils.get_tensor_shape(feature2)
+    batch1, max_node_num1, dims1 = utils.get_tensor_shape(feature1)
+    batch2, max_node_num2, dims2 = utils.get_tensor_shape(feature2)
+    assert batch1 == batch2
+
+    batch = batch1
 
     with tf.variable_scope(scope):
       feature_1to1 = self._pairwise_transform(
           feature1, feature1, dims=inference_dims, scope='feature_1to1')
       feature_1to2 = self._pairwise_transform(
-          feature1, feature2, dims=inference_dims, scope='feature_1to2')
+          feature2, feature1, dims=inference_dims, scope='feature_1to2')
+      feature_2to1 = self._pairwise_transform(
+          feature1, feature2, dims=inference_dims, scope='feature_2to1')
+      feature_2to2 = self._pairwise_transform(
+          feature2, feature2, dims=inference_dims, scope='feature_2to2')
 
     tf.summary.histogram('gcn/feature1to1', feature_1to1)
     tf.summary.histogram('gcn/feature1to2', feature_1to2)
+    tf.summary.histogram('gcn/feature2to1', feature_2to1)
+    tf.summary.histogram('gcn/feature2to2', feature_2to2)
 
     # Compute adjacency matrix
-    #   shape = [batch, max_node_num1, max_node_num1 + max_node_num2]
+    #   shape = [batch, max_node_num1 + max_node_num2, max_node_num1 + max_node_num2]
 
-    adjacency_logits = tf.concat([feature_1to1, feature_1to2], axis=2)
+    logits_to1 = tf.concat([feature_1to1, feature_2to1], axis=2)
+    masks_to1 = tf.expand_dims(tf.concat([mask1, mask2], axis=1), axis=1)
+    adjacency_to1 = utils.masked_softmax(data=logits_to1, mask=masks_to1, dim=2)
+    adjacency_to1 = tf.multiply(adjacency_to1, tf.expand_dims(mask1, axis=2))
 
-    mask = tf.concat([mask1, mask2], axis=1)
-    adjacency = utils.masked_softmax(
-        data=adjacency_logits, mask=tf.expand_dims(mask, 1), dim=2)
-    adjacency = tf.multiply(adjacency, tf.expand_dims(mask1, axis=2))
+    if connect_roi_to_slogan:
+      logits_to2 = tf.concat([feature_1to2, feature_2to2], axis=2)
+      masks_to2 = tf.concat([
+          tf.tile(tf.expand_dims(mask1, axis=1), [1, max_node_num2, 1]),
+          tf.eye(num_rows=max_node_num2, batch_shape=[batch2])
+      ],
+                            axis=2)
+      adjacency_to2 = utils.masked_softmax(
+          data=logits_to2, mask=masks_to2, dim=2)
+      adjacency_to2 = tf.multiply(adjacency_to2, tf.expand_dims(mask2, axis=2))
+    else:
+      adjacency_to2 = logits_to2 = tf.fill(
+          dims=[batch, max_node_num2, max_node_num1 + max_node_num2], value=0.0)
+
+    adjacency_logits = tf.concat([logits_to1, logits_to2], axis=1)
+    adjacency = tf.concat([adjacency_to1, adjacency_to2], axis=1)
 
     tf.summary.histogram('gcn/adjacency_logits', adjacency_logits)
     tf.summary.histogram('gcn/adjacency_probas', adjacency)
 
-    # Pad adjacency matrix
-    #   shape = [batch, max_node_num1 + max_node_num2, max_node_num1 + max_node_num2]
-
-    adjacency = tf.pad(
-        adjacency, [[0, 0], [0, max_node_num2], [0, 0]],
-        mode='CONSTANT',
-        constant_values=0)
-    adjacency_logits = tf.pad(
-        adjacency_logits, [[0, 0], [0, max_node_num2], [0, 0]],
-        mode='CONSTANT',
-        constant_values=0)
     return adjacency, adjacency_logits
 
   def build_prediction(self, examples, **kwargs):
@@ -342,16 +329,15 @@ class Model(ModelBase):
       stmt_text_string = question_text_string[0][:question_num[0], :]
       stmt_text_length = question_text_length[0][:question_num[0]]
 
-      groundtruth_mask = self._mask_groundtruth(
+      stmt_mask = self._mask_groundtruth(
           groundtruth_strings=groundtruth_text_string[0]
           [:groundtruth_num[0], :],
           question_strings=question_text_string[0][:question_num[0], :])
 
       image_ids_gathered = tf.where(
-          groundtruth_mask,
-          x=tf.fill(tf.shape(groundtruth_mask), image_id[0]),
-          y=tf.fill(
-              tf.shape(groundtruth_mask), tf.constant(-1, dtype=tf.int64)))
+          stmt_mask,
+          x=tf.fill(tf.shape(stmt_mask), image_id[0]),
+          y=tf.fill(tf.shape(stmt_mask), tf.constant(-1, dtype=tf.int64)))
 
     # Word embedding processes.
 
@@ -416,23 +402,59 @@ class Model(ModelBase):
 
     # Build the message-passing graph.
 
-    nodes, masks = self._node_embedding(
+    nodes = self._node_embedding(
         feature_list=[image_repr, slogan_repr],
-        mask_list=[roi_mask, slogan_mask],
         batch_norm=True,
         is_training=is_training)
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       adjacency, adjacency_logits = self._adjacency_matrix(
-          roi_feature,
-          slogan_repr,
-          roi_mask,
-          slogan_mask,
+          feature1=roi_feature,
+          mask1=roi_mask,
+          feature2=slogan_repr,
+          mask2=slogan_mask,
           inference_dims=options.inference_dims,
+          connect_roi_to_slogan=options.connect_roi_to_slogan,
           scope='adjacency')
 
+      # GCN layer 1.
+
       nodes = tf.matmul(adjacency, nodes)
+
+      # # GCN layer 2.
+
+      # raw_nodes = nodes
+      # nodes = slim.dropout(tf.nn.relu6(nodes), 0.5, is_training=is_training)
+      # nodes = tf.contrib.layers.fully_connected(
+      #     inputs=nodes,
+      #     num_outputs=nodes.get_shape()[-1].value,
+      #     activation_fn=None,
+      #     scope='gcn_layer2')
+      # nodes = tf.matmul(adjacency, nodes)
+
+      # nodes = raw_nodes + nodes # residual learning
+
+      # GCN layer 2.
+
+      raw_branch = nodes
+      nodes = tf.contrib.layers.fully_connected(
+          inputs=nodes,
+          num_outputs=options.embedding_dims,
+          activation_fn=tf.nn.relu6,
+          scope='res_a')
+      nodes = slim.dropout(
+          nodes, options.dropout_keep_prob, is_training=is_training)
+      nodes = tf.contrib.layers.fully_connected(
+          inputs=nodes,
+          num_outputs=options.embedding_dims,
+          activation_fn=None,
+          scope='res_b')
+      nodes = tf.matmul(adjacency, nodes)
+
+      nodes = raw_branch + nodes  # residual learning
+
       output_mask = tf.concat([roi_mask, tf.zeros_like(slogan_mask)], axis=1)
+      #output_mask = tf.concat([roi_mask, slogan_mask], axis=1)
       graph_repr = utils.masked_avg_nd(data=nodes, mask=output_mask, dim=1)
       graph_repr = tf.squeeze(graph_repr, axis=[1])
 
@@ -462,7 +484,7 @@ class Model(ModelBase):
         tf.expand_dims(image_l2, axis=1), tf.expand_dims(stmt_l2, axis=0))
     dot_product = tf.contrib.layers.dropout(
         dot_product,
-        keep_prob=options.dot_product_dropout_keep_prob,
+        keep_prob=options.dropout_keep_prob,
         is_training=is_training)
     similarity = tf.reduce_sum(dot_product, axis=-1)
 
@@ -499,8 +521,10 @@ class Model(ModelBase):
             tf.expand_dims(image_ids_gathered, axis=0)), tf.float32)
     neg_mask = 1.0 - pos_mask
 
-    #distance_ap = utils.masked_avg(distance, pos_mask)
-    distance_ap = utils.masked_maximum(distance, pos_mask)
+    if options.triplet_ap_use_avg:
+      distance_ap = utils.masked_avg(distance, pos_mask)
+    else:
+      distance_ap = utils.masked_maximum(distance, pos_mask)
 
     # negatives_outside: smallest D_an where D_an > D_ap.
 
@@ -551,4 +575,4 @@ class Model(ModelBase):
     return {'accuracy': (accuracy, update_op)}
 
 
-register_model_class(advise_gcn_model_v2_pb2.AdViSEGCNV2Model.ext, Model)
+register_model_class(advise_gcn_model_v4_pb2.AdViSEGCNV4Model.ext, Model)

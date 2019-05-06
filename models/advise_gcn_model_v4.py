@@ -59,6 +59,12 @@ class Model(ModelBase):
         word for word, freq in slgn_vocab_with_freq if freq > 20
     ]
     tf.logging.info('Vocab of slgn, len=%i', len(self._slgn_vocab_list))
+    slgn_kb_vocab_with_freq = model_utils.read_vocabulary_with_frequency(
+        options.slgn_kb_vocab_list_path)
+    self._slgn_kb_vocab_list = [
+        word for word, freq in slgn_kb_vocab_with_freq if freq > 20
+    ]
+    tf.logging.info('Vocab of slgn kb, len=%i', len(self._slgn_kb_vocab_list))
 
   def get_scaffold(self):
     """Returns scaffold object used to initialize variables.
@@ -80,7 +86,8 @@ class Model(ModelBase):
       assert dims == options.embedding_dims
 
       for scope, vocab_list in [('stmt_word_embedding', self._stmt_vocab_list),
-                                ('slgn_word_embedding', self._slgn_vocab_list)]:
+                                ('slgn_word_embedding', self._slgn_vocab_list),
+                                ('slgn_kb_word_embedding', self._slgn_kb_vocab_list) ]:
         word_embedding = [
             word2vec.get(word, _INIT_WIDTH * (np.random.rand(dims) * 2.0 - 1.0))
             for word in vocab_list
@@ -201,6 +208,8 @@ class Model(ModelBase):
                         mask1,
                         feature2,
                         mask2,
+                        feature3,
+                        mask3,
                         inference_dims=100,
                         connect_roi_to_slogan=False,
                         scope=None):
@@ -219,34 +228,40 @@ class Model(ModelBase):
     """
     batch1, max_node_num1, dims1 = utils.get_tensor_shape(feature1)
     batch2, max_node_num2, dims2 = utils.get_tensor_shape(feature2)
-    assert batch1 == batch2
+    batch3, max_node_num3, dims3 = utils.get_tensor_shape(feature3)
+    assert batch1 == batch2 == batch3
 
     batch = batch1
 
     with tf.variable_scope(scope):
       feature_1to1 = self._pairwise_transform(
           feature1, feature1, dims=inference_dims, scope='feature_1to1')
-      feature_1to2 = self._pairwise_transform(
-          feature2, feature1, dims=inference_dims, scope='feature_1to2')
+      #feature_1to2 = self._pairwise_transform(
+      #    feature2, feature1, dims=inference_dims, scope='feature_1to2')
       feature_2to1 = self._pairwise_transform(
           feature1, feature2, dims=inference_dims, scope='feature_2to1')
-      feature_2to2 = self._pairwise_transform(
-          feature2, feature2, dims=inference_dims, scope='feature_2to2')
+      #feature_2to2 = self._pairwise_transform(
+      #    feature2, feature2, dims=inference_dims, scope='feature_2to2')
+
+      feature_3to1 = self._pairwise_transform(
+          feature1, feature3, dims=inference_dims, scope='feature_3to1')
 
     tf.summary.histogram('gcn/feature1to1', feature_1to1)
-    tf.summary.histogram('gcn/feature1to2', feature_1to2)
+    #tf.summary.histogram('gcn/feature1to2', feature_1to2)
     tf.summary.histogram('gcn/feature2to1', feature_2to1)
-    tf.summary.histogram('gcn/feature2to2', feature_2to2)
+    #tf.summary.histogram('gcn/feature2to2', feature_2to2)
+    tf.summary.histogram('gcn/feature3to1', feature_3to1)
 
     # Compute adjacency matrix
     #   shape = [batch, max_node_num1 + max_node_num2, max_node_num1 + max_node_num2]
 
-    logits_to1 = tf.concat([feature_1to1, feature_2to1], axis=2)
-    masks_to1 = tf.expand_dims(tf.concat([mask1, mask2], axis=1), axis=1)
+    logits_to1 = tf.concat([feature_1to1, feature_2to1, feature_3to1], axis=2)
+    masks_to1 = tf.expand_dims(tf.concat([mask1, mask2, mask3], axis=1), axis=1)
     adjacency_to1 = utils.masked_softmax(data=logits_to1, mask=masks_to1, dim=2)
     adjacency_to1 = tf.multiply(adjacency_to1, tf.expand_dims(mask1, axis=2))
 
     if connect_roi_to_slogan:
+      assert False
       logits_to2 = tf.concat([feature_1to2, feature_2to2], axis=2)
       masks_to2 = tf.concat([
           tf.tile(tf.expand_dims(mask1, axis=1), [1, max_node_num2, 1]),
@@ -258,10 +273,21 @@ class Model(ModelBase):
       adjacency_to2 = tf.multiply(adjacency_to2, tf.expand_dims(mask2, axis=2))
     else:
       adjacency_to2 = logits_to2 = tf.fill(
-          dims=[batch, max_node_num2, max_node_num1 + max_node_num2], value=0.0)
+          dims=[
+              batch, max_node_num2,
+              max_node_num1 + max_node_num2 + max_node_num3
+          ],
+          value=0.0)
 
-    adjacency_logits = tf.concat([logits_to1, logits_to2], axis=1)
-    adjacency = tf.concat([adjacency_to1, adjacency_to2], axis=1)
+    adjacency_to3 = logits_to3 = tf.fill(
+        dims=[
+            batch, max_node_num3,
+            max_node_num1 + max_node_num2 + max_node_num3
+        ],
+        value=0.0)
+
+    adjacency_logits = tf.concat([logits_to1, logits_to2, logits_to3], axis=1)
+    adjacency = tf.concat([adjacency_to1, adjacency_to2, adjacency_to3], axis=1)
 
     tf.summary.histogram('gcn/adjacency_logits', adjacency_logits)
     tf.summary.histogram('gcn/adjacency_probas', adjacency)
@@ -294,6 +320,10 @@ class Model(ModelBase):
      slogan_text_length) = (examples[InputDataFields.slogan_num],
                             examples[InputDataFields.slogan_text_string],
                             examples[InputDataFields.slogan_text_length])
+    (slogan_kb_num, slogan_kb_text_string,
+     slogan_kb_text_length) = (examples[InputDataFields.slogan_kb_num],
+                               examples[InputDataFields.slogan_kb_text_string],
+                               examples[InputDataFields.slogan_kb_text_length])
     (groundtruth_num, groundtruth_text_string, groundtruth_text_length) = (
         examples[InputDataFields.groundtruth_num],
         examples[InputDataFields.groundtruth_text_string],
@@ -361,6 +391,16 @@ class Model(ModelBase):
             self._slgn_vocab_list,
             num_oov_buckets=1).lookup(slogan_text_string),
         max_norm=None)
+    slogan_kb_text_feature = tf.nn.embedding_lookup(
+        params=self._word_embedding(
+            self._slgn_kb_vocab_list,
+            options.embedding_dims,
+            init_width=_INIT_WIDTH,
+            scope='slgn_kb_word_embedding'),
+        ids=tf.contrib.lookup.index_table_from_tensor(
+            self._slgn_kb_vocab_list,
+            num_oov_buckets=1).lookup(slogan_kb_text_string),
+        max_norm=None)
 
     # Image representation.
     #   roi_num shape = [batch_i]
@@ -400,10 +440,25 @@ class Model(ModelBase):
         maxlen=utils.get_tensor_shape(slogan_text_feature)[1],
         dtype=tf.float32)
 
+    # Slogan-kb representation.
+
+    slogan_kb_length_mask = tf.sequence_mask(
+        slogan_kb_text_length,
+        maxlen=utils.get_tensor_shape(slogan_kb_text_feature)[2],
+        dtype=tf.float32)
+    slogan_kb_repr = tf.squeeze(
+        utils.masked_avg_nd(
+            data=slogan_kb_text_feature, mask=slogan_kb_length_mask, dim=2),
+        axis=[2])
+    slogan_kb_mask = tf.sequence_mask(
+        slogan_kb_num,
+        maxlen=utils.get_tensor_shape(slogan_kb_text_feature)[1],
+        dtype=tf.float32)
+
     # Build the message-passing graph.
 
     nodes = self._node_embedding(
-        feature_list=[image_repr, slogan_repr],
+        feature_list=[image_repr, slogan_repr, slogan_kb_repr],
         batch_norm=True,
         is_training=is_training)
 
@@ -413,6 +468,8 @@ class Model(ModelBase):
           mask1=roi_mask,
           feature2=slogan_repr,
           mask2=slogan_mask,
+          feature3=slogan_kb_repr,
+          mask3=slogan_kb_mask,
           inference_dims=options.inference_dims,
           connect_roi_to_slogan=options.connect_roi_to_slogan,
           scope='adjacency')
@@ -453,7 +510,7 @@ class Model(ModelBase):
 
       nodes = raw_branch + nodes  # residual learning
 
-      output_mask = tf.concat([roi_mask, tf.zeros_like(slogan_mask)], axis=1)
+      output_mask = tf.concat([roi_mask, tf.zeros_like(slogan_mask), tf.zeros_like(slogan_kb_mask)], axis=1)
       #output_mask = tf.concat([roi_mask, slogan_mask], axis=1)
       graph_repr = utils.masked_avg_nd(data=nodes, mask=output_mask, dim=1)
       graph_repr = tf.squeeze(graph_repr, axis=[1])

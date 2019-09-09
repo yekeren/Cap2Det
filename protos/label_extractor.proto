@@ -1,0 +1,27 @@
+syntax = "proto2";
+
+message LabelExtractor {
+  oneof label_extractor_oneof {
+    GroundtruthExtractor groundtruth_extractor = 1;
+    ExactMatchExtractor exact_match_extractor = 2;
+    ExtendMatchExtractor extend_match_extractor = 3;
+    WordVectorMatchExtractor word_vector_match_extractor = 4;
+    //TextClassifierExtractor text_classifier_extractor = 5;
+  }
+}
+
+message GroundtruthExtractor {
+  optional string label_file = 1;
+}
+
+message ExactMatchExtractor {
+  optional string label_file = 1;
+}
+
+message ExtendMatchExtractor {
+  optional string label_file = 1;
+}
+
+message WordVectorMatchExtractor {
+  optional string label_file = 1;
+}

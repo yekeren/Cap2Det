@@ -5,12 +5,11 @@ import "protos/image_resizer.proto";
 
 message Reader {
   oneof reader_oneof {
-    WSODReader wsod_reader = 1;
-    AdViSEReader advise_reader = 2;
+    Cap2DetReader cap2det_reader = 1;
   }
 }
 
-message AdViSEReader {
+message Cap2DetReader {
   // Pattern of the input files.
   repeated string input_pattern = 1;
 
@@ -18,86 +17,36 @@ message AdViSEReader {
   optional int32 interleave_cycle_length = 2 [default = 2];
 
   // If True, repeat the dataset and shuffle the batch.
-  optional bool is_training = 4 [default = false];
+  optional bool is_training = 3 [default = false];
 
   // Shuffle buffer size.
-  optional int32 shuffle_buffer_size = 5 [default = 1000];
+  optional int32 shuffle_buffer_size = 4 [default = 1000];
 
   // Number of parallel calls.
-  optional int32 map_num_parallel_calls = 6 [default = 1];
+  optional int32 map_num_parallel_calls = 5 [default = 1];
 
   // Prefetch buffer size.
-  optional int32 prefetch_buffer_size = 7 [default = 200];
+  optional int32 prefetch_buffer_size = 6 [default = 200];
 
   // Batch size.
-  optional int32 batch_size = 8 [default = 32];
+  optional int32 batch_size = 7 [default = 32];
 
-  // Feature dimensions.
-  optional int32 feature_dimensions = 9 [default = 1536];
-
-  // Symbol dimensions.
-  optional int32 symbol_dimensions = 10 [default = 54];
-
-  // See core.standard_fields.TFOpertions.decode_*.
-  repeated string decode_annotation = 11;
-
-  // Maximum full text length.
-  optional int32 max_full_text_length =12;
-}
-
-message WSODReader {
-  // Pattern of the input files.
-  repeated string input_pattern = 1;
-
-  // Cycle length of interleave call.
-  optional int32 interleave_cycle_length = 2 [default = 2];
-
-  // If True, repeat the dataset and shuffle the batch.
-  optional bool is_training = 4 [default = false];
-
-  // Shuffle buffer size.
-  optional int32 shuffle_buffer_size = 5 [default = 1000];
-
-  // Number of parallel calls.
-  optional int32 map_num_parallel_calls = 6 [default = 1];
-
-  // Prefetch buffer size.
-  optional int32 prefetch_buffer_size = 7 [default = 200];
-
-  // Batch size.
-  optional int32 batch_size = 8 [default = 32];
-
-  // If false, do not decode image.
-  optional bool decode_image = 10 [default = true];
-
-  // Height of the resized image, depreated, see `image_resizer` for update.
-  optional int32 image_height = 11 [deprecated = true];
-
-  // Width of the resized image, deprecated, see `image_resizer` for update.
-  optional int32 image_width = 12 [deprecated = true];
-
-  // Image channels, deprecated.
-  optional int32 image_channels = 13 [deprecated = true];
+  // If false, do not decode image; For text classifier training.
+  optional bool decode_image = 11 [default = true];
 
   // Image resizer.
-  optional ImageResizer image_resizer = 14;
-
-  // Maximum length of the captions.
-  optional int32 max_caption_length = 15 [deprecated = true];
+  optional ImageResizer image_resizer = 12;
 
   // Preprocess options.
-  optional Preprocess preprocess_options = 16;
+  optional Preprocess preprocess_options = 13;
 
   // Pad to the max number of proposals to ensure static shape.
-  optional int32 max_num_proposals = 23 [default = 300];
-
-  // If true, shuffle proposals at training time.
-  optional bool shuffle_proposals = 24 [default = false];
+  optional int32 max_num_proposals = 14 [default = 500];
 
   // Randomly resize image according to these scales values.
-  repeated float batch_resize_scale_value = 25;
+  repeated float batch_resize_scale_value = 15;
 
   // Shard to read, in the format of '0/3', '1/3', '2/3'.
   // The denominator denotes the number of shards. The numerator denotes the shard to export.
-  optional string shard_indicator = 26;
+  optional string shard_indicator = 16;
 }

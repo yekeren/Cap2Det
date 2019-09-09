@@ -1,0 +1,80 @@
+person	person,girl,boy,man,woman,kid,child,chef,baker,people,adult,rider,children,baby,worker,passenger,sister,biker,policeman,officer,lady,cowboy,bride,groom,male,female,guy,traveler,mother,father,gentleman,pitcher,player,skier,snowboarder,skater,skateboarder,foreigner,caller,offender,coworker,trespasser,patient,politician,soldier,grandchild,serviceman,walker,drinker,doctor,bicyclist,thief,buyer,teenager,student,camper,driver,solider,hunter,shopper,villager,cop
+bicycle	bicycle,bike,unicycle,minibike,trike
+car	car,automobile,van,minivan,sedan,suv,hatchback,cab,jeep,coupe,taxicab,limo,taxi
+motorcycle	motorcycle,scooter,motor bike,motor cycle,motorbike,moped
+airplane	airplane,jetliner,plane,air plane,monoplane,aircraft,jet,airbus,biplane,seaplane bus,minibus,trolley
+bus	bus,minibus,schoolbus,trolley
+train	train,locomotive,tramway,caboose
+truck	truck,pickup,lorry,hauler,firetruck
+boat	boat,ship,liner,sailboat,motorboat,dinghy,powerboat,speedboat,canoe,skiff,yacht,kayak,catamaran,pontoon,houseboat,vessel,rowboat,trawler,ferryboat,watercraft,tugboat,schooner,barge,ferry,sailboard,paddleboat,lifeboat,freighter,steamboat,riverboat,surfboard,battleship,steamship
+traffic light	traffic light,street light,traffic signal,stop light,streetlight,stoplight
+fire hydrant	fire hydrant,hydrant
+stop sign	stop sign,street sign
+parking meter	parking meter
+bench	bench,pew
+cat	cat,kitten,feline,tabby
+dog	dog,puppy,beagle,pup,chihuahua,schnauzer,dachshund,rottweiler,canine,pitbull,collie,pug,terrier,poodle,labrador,doggie,doberman,mutt,doggy,spaniel,bulldog,sheepdog,weimaraner,corgi,cocker,greyhound,retriever,brindle,hound,whippet,husky
+horse	horse,colt,pony,racehorse,stallion,equine,mare,foal,palomino,mustang,clydesdale,bronc,bronco
+sheep	sheep,lamb,goat,ram,cattle,ewe
+cow	cow,cattle,oxen,ox,calf,ewe,holstein,heifer,buffalo,bull,zebu,bison
+elephant	elephant
+bear	bear,panda
+zebra	zebra
+giraffe	giraffe
+backpack	backpack,knapsack
+umbrella	umbrella
+handbag	handbag,handbag,wallet,purse,briefcase
+tie	tie
+suitcase	suitcase,suit case,luggage
+frisbee	frisbee
+skis	skis,ski
+snowboard	snowboard
+sports ball	sports ball,baseball,ball,football,soccer,basketball,softball,volleyball,pinball,fastball,racquetball
+kite	kite
+baseball bat	baseball bat
+baseball glove	baseball glove
+skateboard	skateboard
+surfboard	surfboard,longboard,skimboard,shortboard,wakeboard
+tennis racket	tennis racket
+bottle	bottle
+wine glass	wine glass
+cup	cup
+fork	fork
+knife	knife,pocketknife,knive
+spoon	spoon
+bowl	bowl,container,plate
+banana	banana
+apple	apple
+sandwich	sandwich,burger,sub,cheeseburger,hamburger
+orange	orange,lemons
+broccoli	broccoli
+carrot	carrot
+hot dog	hot dog
+pizza	pizza
+donut	donut,doughnut,bagel
+cake	cake,cheesecake,cupcake,shortcake,coffeecake,pancake
+bird	bird,ostrich,owl,seagull,goose,duck,parakeet,falcon,robin,pelican,waterfowl,heron,hummingbird,mallard,finch,pigeon,sparrow,seabird,osprey,blackbird,fowl,shorebird,woodpecker,egret,chickadee,quail,bluebird,kingfisher,buzzard,willet,gull,swan,bluejay,flamingo,cormorant,parrot,loon,gosling,waterbird,pheasant,rooster,sandpiper,crow,raven,turkey,oriole,cowbird,warbler,magpie,peacock,cockatiel,lorikeet,puffin,vulture,condor,macaw,peafowl,cockatoo,songbird
+chair	chair,seat,recliner,stool
+couch	couch,sofa,recliner,futon,loveseat,settee,chesterfield
+potted plant	potted plant,houseplant
+bed	bed
+dining table	dining table,table
+toilet	toilet,urinal,commode,lavatory,potty
+tv	tv,monitor,televison,television
+laptop	laptop,computer,notebook,netbook,lenovo,macbook
+mouse	mouse
+remote	remote
+keyboard	keyboard
+cell phone	cell phone,mobile phone,phone,cellphone,cellphone,telephone,phon,smartphone,iPhone
+microwave	microwave
+oven	oven
+toaster	toaster
+sink	sink
+refrigerator	refrigerator,fridge,refrigerator,fridge,freezer,refridgerator,frig
+book	book
+clock	clock
+vase	vase
+scissors	scissors
+teddy bear	teddy bear,teddybear
+hair drier	hair drier,hairdryer
+toothbrush	toothbrush

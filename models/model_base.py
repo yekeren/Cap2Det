@@ -6,9 +6,8 @@ import abc
 import tensorflow as tf
 
 
-class ModelBase(object):
+class ModelBase(abc.ABC):
   """Model interface."""
-  __metaclass__ = abc.ABCMeta
 
   def __init__(self, model_proto, is_training=False):
     """Initializes the model.

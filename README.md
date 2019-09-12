@@ -4,37 +4,69 @@ Implementation of our ICCV 2019 paper "Cap2Det: Learning to AmplifyWeak Caption 
 If you found this repository useful, please cite our paper
 
 ```
-@article{DBLP:journals/corr/abs-1907-10164,
-  author    = {Keren Ye and
-               Mingda Zhang and
-               Adriana Kovashka and
-               Wei Li and
-               Danfeng Qin and
-               Jesse Berent},
-  title     = {Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection},
-  journal   = {CoRR},
-  volume    = {abs/1907.10164},
-  year      = {2019},
-  url       = {http://arxiv.org/abs/1907.10164},
-  archivePrefix = {arXiv},
-  eprint    = {1907.10164},
-  timestamp = {Thu, 01 Aug 2019 08:59:33 +0200},
-  biburl    = {https://dblp.org/rec/bib/journals/corr/abs-1907-10164},
-  bibsource = {dblp computer science bibliography, https://dblp.org}
+@InProceedings{Ye_2019_ICCV,
+  author = {Ye, Keren and Zhang, Mingda and Kovashka, Adriana and Li, Wei and Qin, Danfeng and Berent, Jesse},
+  title = {Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection},
+  booktitle = {The IEEE International Conference on Computer Vision (ICCV)},
+  month = {Oct},
+  year = {2019}
 }
 ```
 
-# Preparing data.
+## Table of contents
 
-We provide scripts to preprocess datasets such as MSCOCO 2017, Flick30K, VOC 2007/2012.
+  * [TL;DR](#tl-dr)
+  * [Installation](#installation)
+  * [Preparing data](#preparing-data)
+    -  [Pascal VOC](#pascal-voc)
+    -  [MSCOCO 2017](#mscoco-2017)
+    -  [Flickr30K (to be added)](#flickr30k)
+    -  [Image Ads (to be added)](#image-ads)
+  * [Training](#training)
+    -  [WSOD model](#wsod)
+    -  [Cap2Det model](#cap2det)
 
-Preparing these training data involves three steps:
+
+## TL;DR
+
+Here are the simplest commands for preparing the data and training the models.
+
+```
+sh scripts/prepare_voc.sh "raw-data-voc"
+sh scripts/prepare_coco.sh "raw-data-coco"
+
+# Train a Cap2Det model.
+sh train_cap2det.sh "coco17_extend_match"
+
+# Train a WSOD model.
+sh train_wsod.sh "voc07_groundtruth"
+```
+
+Please read the following details regarding the usage.
+
+
+## Installation
+
+We use Python 3.6.4 and Tensorflow 1.10.1.
+More details regarding the required packages can be found in [requirements.txt](requirements.txt).
+
+To install the packages using the default setting, one can use pip:
+
+```
+pip install -r "requirements.txt"
+```
+
+## Preparing data
+
+We provide scripts to preprocess datasets such as Pascal VOC 2007/2012, MSCOCO 2017, Flick30K, Image Ads.
+
+Preparing these datasets involves three steps:
 
 *  Extract region proposals using the Selective Search algorithm.
 *  Encode the annotations and the region proposals to the tfrecord files.
 *  Gather the open vocabulary, extract required word embeddings from pre-trained GloVe model.
 
-## Pascal VOC
+### Pascal VOC
 
 The Pascal VOC datasets are used for:
 
@@ -50,7 +82,7 @@ We evaluate on 4,952 and 10,991 test images.
 For the second goal (Cap2Det),
 we train models on MSCOCO or Flickr30k, then evaluate on the 4,952 test images in VOC2007.
 
-### Extract region proposals
+#### Extract region proposals
 
 ```
 python "tools/create_pascal_selective_search_data.py" \
@@ -61,7 +93,7 @@ python "tools/create_pascal_selective_search_data.py" \
   --output_dir="${OUTPUT_DIR}"
 ```
 
-### Generate tfrecord files
+#### Generate tfrecord files
 
 ```
 python "tools/create_pascal_tf_record.py" \
@@ -75,7 +107,7 @@ python "tools/create_pascal_tf_record.py" \
   --ignore_difficult_instances
 ```
 
-### All-in-one
+#### All-in-one
 
 Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-voc directory, and generate files in it.
@@ -84,11 +116,12 @@ It shall create a new raw-data-voc directory, and generate files in it.
 sh scripts/prepare_voc.sh "raw-data-voc"
 ```
 
-## MSCOCO 2017
+### MSCOCO 2017
 
-We use the 591,435 annotated captions paired to the 118,287 train2017 images for training.
+We use the 591,435 annotated captions paired to the 118,287 train2017 images for training our Cap2Det model.
+The evaluation is proceeded on either the MSCOCO test images or the 4,952 VOC2007 images.
 
-### Extract region proposals
+#### Extract region proposals
 
 ```
 python "tools/create_coco_selective_search_data.py" \
@@ -102,7 +135,7 @@ python "tools/create_coco_selective_search_data.py" \
   --output_dir="${OUTPUT_DIR}"
 ```
 
-### Generate tfrecord files.
+#### Generate tfrecord files.
 
 ```
 python "tools/create_coco_tf_record.py" \
@@ -119,7 +152,7 @@ python "tools/create_coco_tf_record.py" \
   --output_dir="${OUTPUT_DIR}"
 ```
 
-### Gather the open vocabulary.
+#### Gather the open vocabulary.
 
 ```
 python "tools/create_coco_vocab.py" \
@@ -131,7 +164,7 @@ python "tools/create_coco_vocab.py" \
   --min_word_freq=${MIN_WORD_FREQ}
 ```
 
-### All-in-one
+#### All-in-one
 
 Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-coco directory, and generate files in it.
@@ -140,6 +173,25 @@ It shall create a new raw-data-coco directory, and generate files in it.
 sh scripts/prepare_coco.sh "raw-data-coco/"
 ```
 
-## Flickr30K
+### Flickr30K
 
-## Image Ads
+### Image Ads
+
+## Training
+
+The difference between the Weakly Supervised Object Detection (WSOD) and Caption-to-Detection (Cap2Det) models, lies in the way of extracting the labels.
+
+We defined abstract LabelExtractor class to control the behavior of label extractors.
+The following tables show how to set the configure to reproduce the methods in the paper.
+
+| Name                         | Alternative methods in the paper | Configure files                                                                                              |
+|------------------------------|----------------------------------|--------------------------------------------------------------------------------------------------------------|
+| GroundtruthExtractor         | GT-Label                         | [coco17_groundtruth](configs/coco17_groundtruth.pbtxt), [voc07_groundtruth](configs/voc07_groundtruth.pbtxt) |
+| ExactMatchExtractor          | ExactMatch (EM)                  | [coco17_exact_match](configs/coco17_exact_match.pbtxt)                                                       |
+| ExtendMatchExtractor         | EM+ExtendVocab                   | [coco17_extend_match](configs/coco17_extend_match.pbtxt)                                                     |
+| WordVectorMatchExtractor     | EM+GloVePseudo, EM+LearnedGloVe  |                                                                                                              |
+| TextClassifierMatchExtractor | EM+TextClsf                      |                                                                                                              |
+
+### WSOD model
+
+### Cap2Det model

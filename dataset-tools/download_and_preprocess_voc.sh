@@ -70,7 +70,7 @@ if [ ! -d "${proposal_data}" ]; then
   for year in ${YEARS[@]}; do
     for set in ${SETS[@]}; do
       for ((i=0;i<${num_processes};++i)); do
-        python "tools/create_pascal_selective_search_data.py" \
+        python "dataset-tools/create_pascal_selective_search_data.py" \
           --alsologtostderr \
           --data_dir="${raw_data}/VOCdevkit" \
           --year="${year}" \
@@ -85,11 +85,11 @@ if [ ! -d "${proposal_data}" ]; then
   done
 fi
 
-# Convert Pascal VOC datasets to tfrecord. 
+# Convert Pascal VOC dataset to tfrecord. 
 
 for year in ${YEARS[@]}; do
   for set in ${SETS[@]}; do
-    python "tools/create_pascal_tf_record.py" \
+    python "dataset-tools/create_pascal_tf_record.py" \
       --alsologtostderr \
       --data_dir="${raw_data}/VOCdevkit" \
       --year="${year}" \

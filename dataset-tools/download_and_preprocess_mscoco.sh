@@ -63,7 +63,7 @@ num_processes=50
 proposal_data="${raw_data}/proposal_data"
 if [ ! -d "${proposal_data}" ]; then
   for ((i=0;i<${num_processes};++i)); do
-    python "tools/create_coco_selective_search_data.py" \
+    python "dataset-tools/create_coco_selective_search_data.py" \
       --logtostderr \
       --process_indicator="${i}/${num_processes}" \
       --train_image_file="${raw_data}/${train_images}" \
@@ -80,7 +80,7 @@ fi
 
 # Convert MSCOCO dataset to tfrecord.
 
-python "tools/create_coco_tf_record.py" \
+python "dataset-tools/create_coco_tf_record.py" \
   --logtostderr \
   --train_image_file="${raw_data}/${train_images}" \
   --val_image_file="${raw_data}/${val_images}" \
@@ -93,11 +93,9 @@ python "tools/create_coco_tf_record.py" \
   --proposal_data_path="${proposal_data}" \
   --output_dir="${raw_data}"
 
-exit 0
-
 # Gather the vocabulary.
 
-python "tools/create_coco_vocab.py" \
+python "dataset-tools/create_coco_vocab.py" \
   --logtostderr \
   --train_caption_annotations_file="${raw_data}/annotations/captions_train2017.json" \
   --glove_file="${model_zoo}/glove.6B.300d.txt" \

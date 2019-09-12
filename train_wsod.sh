@@ -1,6 +1,23 @@
 #!/bin/bash
 
-set -xe
+set -o errexit
+set -o nounset
+set -x
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 MODEL_NAME"
+  exit 1
+fi
+
+NAME=$1
+MODEL_DIR="logs/${NAME}"
+PIPELINE_CONFIG_PATH="configs/${NAME}.pbtxt"
+
+if [ ! -f "${PIPELINE_CONFIG_PATH}" ]; then
+  echo "Config file ${PIPELINE_CONFIG_PATH} does not exist."
+  exit 1
+fi
+
 
 HOST0="127.0.0.1"
 
@@ -11,10 +28,6 @@ WORKER1="${HOST0}:2227"
 WORKER2="${HOST0}:2228"
 WORKER3="${HOST0}:2229"
 
-NAME="coco17_exact_match"
-MODEL_DIR="logs/${NAME}"
-PIPELINE_CONFIG_PATH="configs/${NAME}.pbtxt"
-
 # Evaluator.
 export CUDA_VISIBLE_DEVICES=4
 python "train/predict.py" \
@@ -24,9 +37,7 @@ python "train/predict.py" \
   --model_dir="${MODEL_DIR}" \
   --max_eval_examples=500 \
   --max_visl_examples=500 \
-  --eval_coco_on_voc \
   --label_file="data/voc_label.txt" \
-  --input_pattern="output/VOC2007_test_ssbox_quality.record*" \
   --eval_log_dir="${MODEL_DIR}/eval_det" \
   --saved_ckpts_dir="${MODEL_DIR}/saved_ckpts" \
   --visl_file_path="${MODEL_DIR}/visl.html" \
@@ -55,8 +66,8 @@ declare -A index_dict=(
 declare -A gpu_dict=(
   [${PS}]=""
   [${CHIEF}]="0"
-  [${WORKER0}]="2"
-  [${WORKER1}]="1"
+  [${WORKER0}]="1"
+  [${WORKER1}]="2"
   [${WORKER2}]="3"
   [${WORKER3}]="4"
 )

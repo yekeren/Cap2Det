@@ -7,8 +7,6 @@ train_reader {
     map_num_parallel_calls: 10
     prefetch_buffer_size: 500
     batch_size: 2
-    image_channels: 3
-    max_caption_length: 30
     image_resizer {
       keep_aspect_ratio_resizer {
         min_dimension: 1000
@@ -18,7 +16,6 @@ train_reader {
       random_flip_left_right_prob: 0.5
     }
     max_num_proposals: 500
-    shuffle_proposals: false
     batch_resize_scale_value: 1.2
     batch_resize_scale_value: 0.8
     batch_resize_scale_value: 0.6
@@ -34,8 +31,6 @@ eval_reader {
     map_num_parallel_calls: 5
     prefetch_buffer_size: 500
     batch_size: 1
-    image_channels: 3
-    max_caption_length: 30
     image_resizer {
       keep_aspect_ratio_resizer {
         min_dimension: 1000
@@ -46,6 +41,8 @@ eval_reader {
 }
 model {
   [Cap2DetModel.ext] {
+    midn_loss_weight: 1.0
+    oicr_loss_weight: 0.5
     frcnn_options {
       feature_extractor {
         type: 'faster_rcnn_inception_v2'
@@ -58,23 +55,6 @@ model {
       dropout_on_feature_map: false
       checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
     }
-    eval_min_dimension: 1200
-    eval_min_dimension: 800
-    eval_min_dimension: 600
-    eval_min_dimension: 400
-    soft_label_threshold: 0.7
-    vocabulary_file: 'data/coco_label.txt'
-    synonyms_file: 'data/coco_label_synonyms.txt'
-    open_vocabulary_file: 'data/coco_open_vocab.txt'
-    open_vocabulary_glove_file: 'data/coco_open_vocab_300d.npy'
-    text_classifier_checkpoint_path: 'zoo/coco_text_classifier/model.ckpt-50000'
-    embedding_dims: 300
-    text_hidden_units: 400
-    label_option: TEXT_CLSF
-    oicr_loss_weight: 0.5
-    oicr_iterations: 3
-    oicr_iou_threshold: 0.6
-    oicr_use_proba_r_given_c: true
     fc_hyperparams {
       op: FC
       activation: RELU_6
@@ -90,32 +70,29 @@ model {
         }
       }
     }
-    text_fc_hyperparams {
-      op: FC
-      activation: RELU_6
-      regularizer {
-        l2_regularizer {
-          weight: 0.000001
-        }
-      }
-      initializer {
-        truncated_normal_initializer {
-          mean: 0.0
-          stddev: 0.01
-        }
-      }
-    }
-    midn_post_process {
+    oicr_iterations: 3
+    oicr_iou_threshold: 0.6
+    midn_post_processor {
       score_thresh: 0.00001
       iou_thresh: 0.4
       max_size_per_class: 100
       max_total_size: 300
     }
-    oicr_post_process {
+    oicr_post_processor {
       score_thresh: 0.00001
       iou_thresh: 0.3
       max_size_per_class: 100
       max_total_size: 300
+    }
+    eval_min_dimension: 1200
+    eval_min_dimension: 800
+    eval_min_dimension: 600
+    eval_min_dimension: 400
+    oicr_use_proba_r_given_c: true
+    label_extractor {
+      extend_match_extractor {
+        label_file: 'data/coco_label_synonyms.txt'
+      }
     }
   }
 }
@@ -145,8 +122,8 @@ train_config {
     multiplier: 1.0
   }
   sync_replicas: false
-  save_summary_steps: 1000
-  save_checkpoints_steps: 1000
+  save_summary_steps: 2000
+  save_checkpoints_steps: 2000
   keep_checkpoint_max: 10
   log_step_count_steps: 10
 }

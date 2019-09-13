@@ -1,18 +1,12 @@
-r"""Convert raw COCO dataset to TFRecord for object_detection.
-
-Please note that this tool creates sharded output files.
+r"""Generate the vocabulary file for the Flickr30K dataset.
 
 Example usage:
-    python create_coco_tf_record.py --logtostderr \
-      --train_image_file="${TRAIN_IMAGE_FILE}" \
-      --val_image_file="${VAL_IMAGE_FILE}" \
-      --test_image_file="${TEST_IMAGE_FILE}" \
-      --train_annotations_file="${TRAIN_ANNOTATIONS_FILE}" \
-      --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
-      --val_annotations_file="${VAL_ANNOTATIONS_FILE}" \
-      --val_caption_annotations_file="${VAL_CAPTION_ANNOTATIONS_FILE}" \
-      --testdev_annotations_file="${TESTDEV_ANNOTATIONS_FILE}" \
-      --output_dir="${OUTPUT_DIR}"
+    python create_flickr30k_vocab.py \
+      --logtostderr \
+      --annotation_path="${ANNOTATION_PATH}" \
+      --glove_file="${GLOVE_FILE}" \
+      --output_vocabulary_file="${OUTPUT_VOCABULARY_FILE}"
+      --output_vocabulary_word_embedding_file="${OUTPUT_VOCABULARY_WORD_EMBEDDING_FILE}"
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -31,6 +25,7 @@ from object_detection.utils import label_map_util
 flags = tf.app.flags
 
 flags.DEFINE_string('annotation_path', '', '')
+
 tf.flags.DEFINE_string('glove_file', '',
                        'Path to the pre-trained GloVe embedding file.')
 

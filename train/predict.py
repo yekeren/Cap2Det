@@ -47,15 +47,15 @@ flags.DEFINE_string('saved_ckpts_dir', '',
 flags.DEFINE_string('eval_log_dir', '',
                     'Path to the directory saving eval logs.')
 
-flags.DEFINE_string('vocabulary_file', '',
-                    'Path to the detection vocabulary file.')
+flags.DEFINE_string('label_file', '',
+                    'Path to the detection label file.')
 
 flags.DEFINE_integer('max_eval_examples', 500,
                      'Number of examples to evaluate.')
 
-flags.DEFINE_integer('max_visl_examples', 100, 'Minimum eval steps.')
+flags.DEFINE_integer('max_visl_examples', 500, 'Minimum eval steps.')
 
-flags.DEFINE_integer('min_eval_steps', 2000, 'Minimum eval steps.')
+flags.DEFINE_integer('min_eval_steps', 200, 'Minimum eval steps.')
 
 flags.DEFINE_integer('number_of_evaluators', 4, 'Number of evaluators.')
 
@@ -318,8 +318,11 @@ def _convert_coco_result_to_voc(boxes, scores, classes):
       det_boxes.append(box)
       det_scores.append(score)
       det_classes.append(coco_to_voc[int(cls)])
-  return np.stack(det_boxes, 0), np.stack(det_scores, 0), np.stack(
-      det_classes, 0)
+  if len(det_boxes) > 0:
+    return np.stack(det_boxes, 0), np.stack(det_scores, 0), np.stack(
+        det_classes, 0)
+  else:
+    return np.zeros((0, 4)), np.zeros((0)), np.zeros((0), dtype=np.int64)
 
 
 def _run_evaluation(pipeline_proto,
@@ -538,9 +541,8 @@ def main(_):
     tf.logging.info("Override shard_indicator: %s", FLAGS.shard_indicator)
 
   if FLAGS.input_pattern:
-    while len(pipeline_proto.eval_reader.wsod_reader.input_pattern) > 0:
-      pipeline_proto.eval_reader.wsod_reader.input_pattern.pop()
-    pipeline_proto.eval_reader.wsod_reader.input_pattern.append(FLAGS.input_pattern)
+    pipeline_proto.eval_reader.cap2det_reader.input_pattern[:] = []
+    pipeline_proto.eval_reader.cap2det_reader.input_pattern.append(FLAGS.input_pattern)
     tf.logging.info("Override input_pattern: %s", FLAGS.input_pattern)
 
   tf.logging.info("Pipeline configure: %s", '=' * 128)
@@ -550,7 +552,7 @@ def main(_):
 
   categories = []
   category_to_id = {}
-  with open(FLAGS.vocabulary_file, 'r') as fp:
+  with open(FLAGS.label_file, 'r') as fp:
     for line_id, line in enumerate(fp.readlines()):
       categories.append({'id': 1 + line_id, 'name': line.strip('\n')})
       category_to_id[line.strip('\n')] = 1 + line_id

@@ -195,5 +195,6 @@ def py_coord_norm_to_abs(box, height, width):
   """
 
   ymin, xmin, ymax, xmax = [box[:, i] for i in range(4)]
-  box = np.stack([ymin * height, xmin * width, ymax * height, xmax * width], axis=-1)
+  box = np.stack([ymin * height, xmin * width, ymax * height, xmax * width],
+                 axis=-1)
   return box

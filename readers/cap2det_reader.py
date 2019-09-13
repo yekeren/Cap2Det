@@ -25,7 +25,7 @@ def get_input_fn(options):
   Returns:
     input_fn: a callable that returns a dataset.
   """
-  if not isinstance(options, reader_pb2.WSODReader):
+  if not isinstance(options, reader_pb2.Cap2DetReader):
     raise ValueError('options has to be an instance of Reader.')
 
   def _parse_fn(example):
@@ -56,9 +56,6 @@ def get_input_fn(options):
     }
     parsed = tf.parse_single_example(
         example, example_fmt, name=OperationNames.parse_single_example)
-
-    # Basic image information.
-
     image_id = parsed[TFExampleDataFields.image_id]
 
     # Caption annotations.
@@ -83,16 +80,16 @@ def get_input_fn(options):
         InputDataFields.concat_caption_length: tf.shape(tokens)[0],
     }
 
+    # Image data; operations - data augmentation operations applied.
+    
     operations = None
     if options.decode_image:
-
       with tf.name_scope(OperationNames.decode_image):
         image = tf.image.decode_jpeg(
             parsed[TFExampleDataFields.image_encoded], channels=_IMAGE_CHANNELS)
         if options.HasField("preprocess_options"):
           image, operations = preprocess.preprocess_image_v2(
               image, options.preprocess_options)
-
         image_height, image_width, _ = utils.get_tensor_shape(image)
 
         resize_fn = function_builder.build_image_resizer(options.image_resizer)
@@ -103,7 +100,6 @@ def get_input_fn(options):
           InputDataFields.image_width: image_width,
           InputDataFields.image_shape: image_shape,
       })
-    # END if options.decode_image:
 
     # Region proposal annotations.
 
@@ -111,8 +107,6 @@ def get_input_fn(options):
       bbox_decoder = tf.contrib.slim.tfexample_decoder.BoundingBox(
           prefix=TFExampleDataFields.proposal_box + '/')
       proposals = bbox_decoder.tensors_to_item(parsed)
-      if options.is_training and options.shuffle_proposals:
-        proposals = tf.random_shuffle(proposals)
       proposals = proposals[:options.max_num_proposals]
 
       if operations is not None:
@@ -205,16 +199,6 @@ def get_input_fn(options):
     return examples
 
   def _filter_fn(examples):
-    #image_id = examples[InputDataFields.image_id]
-    #image_id = tf.string_to_number(image_id, out_type=tf.int64)
-
-    #numer, denom = options.shard_indicator.split('/')
-    #assert numer.isdigit() and denom.isdigit()
-
-    #numer, denom = int(numer), int(denom)
-    #assert 0 <= numer < denom
-
-    #return tf.equal(tf.mod(image_id, denom), numer)
     image_id = examples[InputDataFields.image_id]
 
     numer, denom = options.shard_indicator.split('/')

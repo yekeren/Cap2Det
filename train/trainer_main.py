@@ -5,7 +5,6 @@ from __future__ import print_function
 import tensorflow as tf
 from google.protobuf import text_format
 
-import reader
 from protos import pipeline_pb2
 from train import trainer
 

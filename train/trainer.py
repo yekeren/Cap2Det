@@ -5,7 +5,7 @@ from __future__ import print_function
 import json
 import tensorflow as tf
 
-from reader import reader
+from readers import reader
 from models import builder
 
 from protos import model_pb2

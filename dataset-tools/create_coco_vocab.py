@@ -1,7 +1,7 @@
 r"""Generate the vocabulary file for the MSCOCO dataset.
 
 Example usage:
-  python "tools/create_coco_vocab.py" \
+  python "create_coco_vocab.py" \
     --logtostderr \
     --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
     --glove_file="${GLOVE_FILE}" \

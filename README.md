@@ -1,39 +1,34 @@
 # Cap2Det
+
 Implementation of our ICCV 2019 paper "Cap2Det: Learning to AmplifyWeak Caption Supervision for Object Detection".
 
-If you found this repository useful, please cite our paper
+<img src="g3doc/images/cap2det.png"/>
 
-```
-@InProceedings{Ye_2019_ICCV,
-  author = {Ye, Keren and Zhang, Mingda and Kovashka, Adriana and Li, Wei and Qin, Danfeng and Berent, Jesse},
-  title = {Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection},
-  booktitle = {The IEEE International Conference on Computer Vision (ICCV)},
-  month = {Oct},
-  year = {2019}
-}
-```
 
 ## Table of contents
 
-  * [TL;DR](#tl-dr)
+  * [TL;DR](#tldr)
   * [Installation](#installation)
   * [Preparing data](#preparing-data)
     -  [Pascal VOC](#pascal-voc)
     -  [MSCOCO 2017](#mscoco-2017)
-    -  [Flickr30K (to be added)](#flickr30k)
+    -  [Flickr30K](#flickr30k)
     -  [Image Ads (to be added)](#image-ads)
   * [Training](#training)
-    -  [WSOD model](#wsod)
-    -  [Cap2Det model](#cap2det)
-
+    -  [Pre-training of a text model](#pre-training-of-a-text-model)
+    -  [Cap2Det training](#cap2det-training)
 
 ## TL;DR
 
 Here are the simplest commands for preparing the data and training the models.
 
 ```
-sh scripts/prepare_voc.sh "raw-data-voc"
-sh scripts/prepare_coco.sh "raw-data-coco"
+sh dataset-tools/download_and_preprocess_voc.sh "raw-data-voc"
+sh dataset-tools/download_and_preprocess_mscoco.sh "raw-data-coco"
+sh dataset-tools/download_and_preprocess_flickr30k.sh "raw-data-flickr30k/"
+
+# Train a text classifier.
+sh train_text.sh "coco17_text"
 
 # Train a Cap2Det model.
 sh train_cap2det.sh "coco17_extend_match"
@@ -85,7 +80,7 @@ we train models on MSCOCO or Flickr30k, then evaluate on the 4,952 test images i
 #### Extract region proposals
 
 ```
-python "tools/create_pascal_selective_search_data.py" \
+python "dataset-tools/create_pascal_selective_search_data.py" \
   --logtostderr \
   --data_dir="${DATA_DIR}" \
   --year="${YEAR}" \
@@ -96,7 +91,7 @@ python "tools/create_pascal_selective_search_data.py" \
 #### Generate tfrecord files
 
 ```
-python "tools/create_pascal_tf_record.py" \
+python "dataset-tools/create_pascal_tf_record.py" \
   --logtostderr \
   --data_dir="${DATA_DIR}" \
   --year="${YEAR}" \
@@ -113,7 +108,7 @@ Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-voc directory, and generate files in it.
 
 ```
-sh scripts/prepare_voc.sh "raw-data-voc"
+sh dataset-tools/download_and_preprocess_voc.sh "raw-data-voc"
 ```
 
 ### MSCOCO 2017
@@ -124,7 +119,7 @@ The evaluation is proceeded on either the MSCOCO test images or the 4,952 VOC200
 #### Extract region proposals
 
 ```
-python "tools/create_coco_selective_search_data.py" \
+python "dataset-tools/create_coco_selective_search_data.py" \
   --logtostderr \
   --train_image_file="${TRAIN_IMAGE_FILE}" \
   --val_image_file="${VAL_IMAGE_FILE}" \
@@ -138,7 +133,7 @@ python "tools/create_coco_selective_search_data.py" \
 #### Generate tfrecord files.
 
 ```
-python "tools/create_coco_tf_record.py" \
+python "dataset-tools/create_coco_tf_record.py" \
   --logtostderr \
   --train_image_file="${TRAIN_IMAGE_FILE}" \
   --val_image_file="${VAL_IMAGE_FILE}" \
@@ -155,7 +150,7 @@ python "tools/create_coco_tf_record.py" \
 #### Gather the open vocabulary.
 
 ```
-python "tools/create_coco_vocab.py" \
+python "dataset-tools/create_coco_vocab.py" \
   --logtostderr \
   --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
   --glove_file="${GLOVE_FILE}" \
@@ -170,10 +165,52 @@ Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-coco directory, and generate files in it.
 
 ```
-sh scripts/prepare_coco.sh "raw-data-coco/"
+sh dataset-tools/download_and_preprocess_mscoco.sh "raw-data-coco/"
 ```
 
 ### Flickr30K
+
+We also trained a Cap2Det model on the FLickr30K dataset containing 31,783 images and 158,915 descriptive captions.
+
+#### Extract region proposals
+
+```
+python "dataset-tools/create_flickr30k_selective_search_data.py" \
+  --logtostderr \
+  --image_tar_file=${IMAGE_TAR_FILE} \
+  --output_dir=${OUTPUT_DIR}
+```
+
+#### Generate tfrecord files.
+
+```
+python "create_flickr30k_tf_record.py" \
+  --logtostderr \
+  --image_tar_file="${IMAGE_TAR_FILE}" \
+  --proposal_data_path="${PROPOSAL_DATA_PATH}" \
+  --annotation_path="${ANNOTATION_PATH}" \
+  --output_path="${OUTPUT_PATH}"
+```
+
+#### Gather the open vocabulary.
+
+```
+python "create_flickr30k_vocab.py" \
+  --logtostderr \
+  --annotation_path="${ANNOTATION_PATH}" \
+  --glove_file="${GLOVE_FILE}" \
+  --output_vocabulary_file="${OUTPUT_VOCABULARY_FILE}"
+  --output_vocabulary_word_embedding_file="${OUTPUT_VOCABULARY_WORD_EMBEDDING_FILE}"
+```
+
+#### All-in-one
+
+Putting all together, one can just run the following all-in-one command.
+It shall create a new raw-data-flickr30k directory, and generate files in it.
+
+```
+sh dataset-tools/download_and_preprocess_flickr30k.sh "raw-data-flickr30k/"
+```
 
 ### Image Ads
 
@@ -192,6 +229,19 @@ The following tables show how to set the configure to reproduce the methods in t
 | WordVectorMatchExtractor     | EM+GloVePseudo, EM+LearnedGloVe  |                                                                                                              |
 | TextClassifierMatchExtractor | EM+TextClsf                      |                                                                                                              |
 
-### WSOD model
+### Pre-training of a text model
 
-### Cap2Det model
+### Cap2Det training
+
+
+If you found this repository useful, please cite our paper
+
+```
+@InProceedings{Ye_2019_ICCV,
+  author = {Ye, Keren and Zhang, Mingda and Kovashka, Adriana and Li, Wei and Qin, Danfeng and Berent, Jesse},
+  title = {Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection},
+  booktitle = {The IEEE International Conference on Computer Vision (ICCV)},
+  month = {Oct},
+  year = {2019}
+}
+```

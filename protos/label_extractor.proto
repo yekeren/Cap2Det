@@ -6,7 +6,7 @@ message LabelExtractor {
     ExactMatchExtractor exact_match_extractor = 2;
     ExtendMatchExtractor extend_match_extractor = 3;
     WordVectorMatchExtractor word_vector_match_extractor = 4;
-    //TextClassifierExtractor text_classifier_extractor = 5;
+    TextClassifierMatchExtractor text_classifier_match_extractor = 5;
   }
 }
 
@@ -24,4 +24,37 @@ message ExtendMatchExtractor {
 
 message WordVectorMatchExtractor {
   optional string label_file = 1;
+
+  // Path to the open-vocabulary file.
+  optional string open_vocabulary_file = 2;
+
+  // Path to the open-vocabulary word embedding file.
+  //   This file should be loaded using `np.load`, 
+  //   resulting in a [vocab_size, embedding_dims] numpy array.
+  optional string open_vocabulary_word_embedding_file = 3;
+}
+
+message TextClassifierMatchExtractor {
+  optional string label_file = 1;
+
+  // Path to the open-vocabulary file.
+  optional string open_vocabulary_file = 2;
+
+  // Path to the open-vocabulary word embedding file.
+  //   This file should be loaded using `np.load`, 
+  //   resulting in a [vocab_size, embedding_dims] numpy array.
+  optional string open_vocabulary_word_embedding_file = 3;
+
+  // Path to the text classifier checkpoint file.
+  optional string text_classifier_checkpoint_file = 4;
+
+  // Number of hidden units.
+  optional int32 hidden_units = 5 [default = 300];
+
+  optional float dropout_keep_proba = 6 [default = 1.0];
+
+  optional float regularizer = 8 [default = 1e-6];
+
+  // Minimum score to be considered as a label.
+  optional float label_threshold = 7 [default = 0.5];
 }

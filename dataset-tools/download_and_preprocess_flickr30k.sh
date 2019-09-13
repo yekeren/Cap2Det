@@ -51,6 +51,17 @@ if [ ! -d "${proposal_data}" ]; then
   done
 fi
 
+# Download GloVe models.
+
+glove_dir="http://nlp.stanford.edu/data"
+glove_file="glove.6B.zip"
+
+download "${glove_dir}" "${glove_file}" "${model_zoo}"
+unzip -n "${model_zoo}/${glove_file}" -d "${model_zoo}"
+
+
+# Convert Flickr30K dataset to tfrecord.
+
 python "dataset-tools/create_flickr30k_tf_record.py" \
   --alsologtostderr \
   --image_tar_file="${raw_data}/flickr30k-images.tar" \
@@ -59,33 +70,12 @@ python "dataset-tools/create_flickr30k_tf_record.py" \
   --output_path="${raw_data}/flickr30k_trainval.record" \
   --number_of_parts=20
 
+# Gather the vocabulary.
 
-
-
-
-
-
-
-
-
-exit 0
-
-
-mkdir -p ${OUTPUT_DIR}
-
-export PYTHONPATH="`pwd`/tensorflow_models/research:$PYTHONPATH"
-export PYTHONPATH="`pwd`/tensorflow_models/research/slim:$PYTHONPATH"
-
-python tools/create_flickr30k_vocab_tmp.py \
+python "dataset-tools/create_flickr30k_vocab.py" \
   --alsologtostderr \
-  --annotation_path="raw_data/flickr30k-captions.token" \
-  --output_path="output/flickr30k_trainval_ssbox_quality" \
-  --glove_file="zoo/glove.6B.300d.txt" \
-  --category_file="configs/coco_vocab.txt" \
-  --vocabulary_file="configs/flickr30k_open_vocab.txt.bak" \
-  --vocabulary_weights_file="configs/flickr30k_open_vocab_300d.npy.bak" \
+  --annotation_path="${raw_data}/results_20130124.token" \
+  --glove_file="${model_zoo}/glove.6B.300d.txt" \
+  --output_vocabulary_file="${raw_data}/flickr30k_open_vocab.txt" \
+  --output_vocabulary_word_embedding_file="${raw_data}/flickr30k_open_vocab_300d.npy" \
   --min_word_freq="10" \
-  || exit -1
-echo done
-exit 0
-

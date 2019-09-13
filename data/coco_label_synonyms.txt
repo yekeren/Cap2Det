@@ -12,6 +12,7 @@ fire hydrant	fire hydrant,hydrant
 stop sign	stop sign,street sign
 parking meter	parking meter
 bench	bench,pew
+bird	bird,ostrich,owl,seagull,goose,duck,parakeet,falcon,robin,pelican,waterfowl,heron,hummingbird,mallard,finch,pigeon,sparrow,seabird,osprey,blackbird,fowl,shorebird,woodpecker,egret,chickadee,quail,bluebird,kingfisher,buzzard,willet,gull,swan,bluejay,flamingo,cormorant,parrot,loon,gosling,waterbird,pheasant,rooster,sandpiper,crow,raven,turkey,oriole,cowbird,warbler,magpie,peacock,cockatiel,lorikeet,puffin,vulture,condor,macaw,peafowl,cockatoo,songbird
 cat	cat,kitten,feline,tabby
 dog	dog,puppy,beagle,pup,chihuahua,schnauzer,dachshund,rottweiler,canine,pitbull,collie,pug,terrier,poodle,labrador,doggie,doberman,mutt,doggy,spaniel,bulldog,sheepdog,weimaraner,corgi,cocker,greyhound,retriever,brindle,hound,whippet,husky
 horse	horse,colt,pony,racehorse,stallion,equine,mare,foal,palomino,mustang,clydesdale,bronc,bronco
@@ -53,7 +54,6 @@ hot dog	hot dog
 pizza	pizza
 donut	donut,doughnut,bagel
 cake	cake,cheesecake,cupcake,shortcake,coffeecake,pancake
-bird	bird,ostrich,owl,seagull,goose,duck,parakeet,falcon,robin,pelican,waterfowl,heron,hummingbird,mallard,finch,pigeon,sparrow,seabird,osprey,blackbird,fowl,shorebird,woodpecker,egret,chickadee,quail,bluebird,kingfisher,buzzard,willet,gull,swan,bluejay,flamingo,cormorant,parrot,loon,gosling,waterbird,pheasant,rooster,sandpiper,crow,raven,turkey,oriole,cowbird,warbler,magpie,peacock,cockatiel,lorikeet,puffin,vulture,condor,macaw,peafowl,cockatoo,songbird
 chair	chair,seat,recliner,stool
 couch	couch,sofa,recliner,futon,loveseat,settee,chesterfield
 potted plant	potted plant,houseplant

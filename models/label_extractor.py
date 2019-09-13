@@ -350,14 +350,16 @@ class TextClassifierMatchExtractor(LabelExtractor):
     with open(options.open_vocabulary_word_embedding_file, 'rb') as fid:
       self._open_vocabulary_word_embedding = np.load(fid)
 
-  def predict(self,
-              text_strings,
-              text_lengths,
-              vocabulary_list,
-              vocabulary_word_embedding,
-              hidden_units,
-              output_units,
-              is_training=False):
+  def _predict(self,
+               text_strings,
+               text_lengths,
+               vocabulary_list,
+               vocabulary_word_embedding,
+               hidden_units,
+               output_units,
+               dropout_keep_proba=1.0,
+               regularizer=1e-5,
+               is_training=False):
     """Predicts labels using the texts.
 
     Args:
@@ -371,8 +373,8 @@ class TextClassifierMatchExtractor(LabelExtractor):
     init_width = 0.03
     oov_emb = init_width * (
         np.random.rand(1, vocabulary_word_embedding.shape[-1]) * 2 - 1)
-    embedding_array_data = np.concatenate(
-        [vocabulary_word_embedding, oov_emb], axis=0)
+    embedding_array_data = np.concatenate([vocabulary_word_embedding, oov_emb],
+                                          axis=0)
 
     # Word embedding process.
 
@@ -400,19 +402,42 @@ class TextClassifierMatchExtractor(LabelExtractor):
           num_outputs=hidden_units,
           activation_fn=None,
           trainable=is_training,
+          weights_regularizer=tf.contrib.layers.l2_regularizer(regularizer),
           scope='layer1')
       hiddens = utils.masked_maximum(
           data=hiddens, mask=tf.expand_dims(masks, axis=-1), dim=1)
       hiddens = tf.squeeze(hiddens, axis=1)
       hiddens = tf.nn.relu(hiddens)
+      hiddens = slim.dropout(
+          hiddens, dropout_keep_proba, is_training=is_training)
 
       logits = slim.fully_connected(
           hiddens,
           num_outputs=output_units,
           activation_fn=None,
           trainable=is_training,
+          weights_regularizer=tf.contrib.layers.l2_regularizer(regularizer),
           scope='layer2')
     return logits
+
+  def predict(self, examples, is_training=False):
+    """Predicts soft labels.
+    Args:
+      examples: A dictionary involving image-level annotations.
+      is_training: A boolean variable.
+    Returns:
+      labels: A [batch, num_classes] tensor denoting the presence of classes.
+    """
+    options = self._options
+    return self._predict(
+        text_strings=examples[InputDataFields.concat_caption_string],
+        text_lengths=None,
+        vocabulary_list=self._open_vocabulary_list,
+        vocabulary_word_embedding=self._open_vocabulary_word_embedding,
+        hidden_units=options.hidden_units,
+        output_units=self.num_classes,
+        dropout_keep_proba=options.dropout_keep_proba,
+        is_training=is_training)
 
   def extract_labels(self, examples):
     """Extracts the pseudo labels.
@@ -425,14 +450,7 @@ class TextClassifierMatchExtractor(LabelExtractor):
 
     # Text classifier.
 
-    logits = self.predict(
-        text_strings=examples[InputDataFields.concat_caption_string],
-        text_lengths=None,
-        vocabulary_list=self._open_vocabulary_list,
-        vocabulary_word_embedding=self._open_vocabulary_word_embedding,
-        hidden_units=options.hidden_units,
-        output_units=self.num_classes,
-        is_training=False)
+    logits = self.predict(examples, is_training=False)
 
     tf.train.init_from_checkpoint(
         options.text_classifier_checkpoint_file,

@@ -7,6 +7,7 @@ from protos import cap2det_model_pb2
 from models.registry import get_registered_model_classes
 
 import models.cap2det_model
+import models.text_model
 
 
 def build(options, is_training=False):

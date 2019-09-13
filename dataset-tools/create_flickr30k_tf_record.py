@@ -175,6 +175,7 @@ def main(_):
 
   for writer in writers:
     writer.close()
+  tf.logging.info('Done')
 
 
 if __name__ == '__main__':

@@ -1,26 +1,27 @@
 # Cap2Det
 
-Implementation of our ICCV 2019 paper "Cap2Det: Learning to AmplifyWeak Caption Supervision for Object Detection".
-
-<img src="g3doc/images/cap2det.png"/>
-
-
-## Table of contents
-
+  * [Introduction](introduction)
   * [TL;DR](#tldr)
   * [Installation](#installation)
   * [Preparing data](#preparing-data)
     -  [Pascal VOC](#pascal-voc)
     -  [MSCOCO 2017](#mscoco-2017)
     -  [Flickr30K](#flickr30k)
-    -  [Image Ads (to be added)](#image-ads)
   * [Training](#training)
     -  [Pre-training of a text model](#pre-training-of-a-text-model)
     -  [Cap2Det training](#cap2det-training)
+  * [Our paper](#our-paper)
+
+## Introduction
+
+Implementation of our ICCV 2019 paper "Cap2Det: Learning to AmplifyWeak Caption Supervision for Object Detection".
+
+<img src="g3doc/images/cap2det.png"/>
 
 ## TL;DR
 
 Here are the simplest commands for preparing the data and training the models.
+One can skip all the rest of the contents in this document.
 
 ```
 sh dataset-tools/download_and_preprocess_voc.sh "raw-data-voc"
@@ -77,8 +78,6 @@ We evaluate on 4,952 and 10,991 test images.
 For the second goal (Cap2Det),
 we train models on MSCOCO or Flickr30k, then evaluate on the 4,952 test images in VOC2007.
 
-#### Extract region proposals
-
 ```
 python "dataset-tools/create_pascal_selective_search_data.py" \
   --logtostderr \
@@ -86,11 +85,7 @@ python "dataset-tools/create_pascal_selective_search_data.py" \
   --year="${YEAR}" \
   --set="${SET}" \
   --output_dir="${OUTPUT_DIR}"
-```
 
-#### Generate tfrecord files
-
-```
 python "dataset-tools/create_pascal_tf_record.py" \
   --logtostderr \
   --data_dir="${DATA_DIR}" \
@@ -102,7 +97,7 @@ python "dataset-tools/create_pascal_tf_record.py" \
   --ignore_difficult_instances
 ```
 
-#### All-in-one
+* All-in-one
 
 Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-voc directory, and generate files in it.
@@ -116,8 +111,6 @@ sh dataset-tools/download_and_preprocess_voc.sh "raw-data-voc"
 We use the 591,435 annotated captions paired to the 118,287 train2017 images for training our Cap2Det model.
 The evaluation is proceeded on either the MSCOCO test images or the 4,952 VOC2007 images.
 
-#### Extract region proposals
-
 ```
 python "dataset-tools/create_coco_selective_search_data.py" \
   --logtostderr \
@@ -128,11 +121,7 @@ python "dataset-tools/create_coco_selective_search_data.py" \
   --val_annotations_file="${VAL_ANNOTATIONS_FILE}" \
   --testdev_annotations_file="${TESTDEV_ANNOTATIONS_FILE}" \
   --output_dir="${OUTPUT_DIR}"
-```
 
-#### Generate tfrecord files.
-
-```
 python "dataset-tools/create_coco_tf_record.py" \
   --logtostderr \
   --train_image_file="${TRAIN_IMAGE_FILE}" \
@@ -145,11 +134,7 @@ python "dataset-tools/create_coco_tf_record.py" \
   --testdev_annotations_file="${TESTDEV_ANNOTATIONS_FILE}" \
   --proposal_data="${PROPOSAL_DATA}" \
   --output_dir="${OUTPUT_DIR}"
-```
 
-#### Gather the open vocabulary.
-
-```
 python "dataset-tools/create_coco_vocab.py" \
   --logtostderr \
   --train_caption_annotations_file="${TRAIN_CAPTION_ANNOTATIONS_FILE}" \
@@ -159,7 +144,7 @@ python "dataset-tools/create_coco_vocab.py" \
   --min_word_freq=${MIN_WORD_FREQ}
 ```
 
-#### All-in-one
+* All-in-one
 
 Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-coco directory, and generate files in it.
@@ -172,29 +157,19 @@ sh dataset-tools/download_and_preprocess_mscoco.sh "raw-data-coco/"
 
 We also trained a Cap2Det model on the FLickr30K dataset containing 31,783 images and 158,915 descriptive captions.
 
-#### Extract region proposals
-
 ```
 python "dataset-tools/create_flickr30k_selective_search_data.py" \
   --logtostderr \
   --image_tar_file=${IMAGE_TAR_FILE} \
   --output_dir=${OUTPUT_DIR}
-```
 
-#### Generate tfrecord files.
-
-```
 python "create_flickr30k_tf_record.py" \
   --logtostderr \
   --image_tar_file="${IMAGE_TAR_FILE}" \
   --proposal_data_path="${PROPOSAL_DATA_PATH}" \
   --annotation_path="${ANNOTATION_PATH}" \
   --output_path="${OUTPUT_PATH}"
-```
 
-#### Gather the open vocabulary.
-
-```
 python "create_flickr30k_vocab.py" \
   --logtostderr \
   --annotation_path="${ANNOTATION_PATH}" \
@@ -203,7 +178,7 @@ python "create_flickr30k_vocab.py" \
   --output_vocabulary_word_embedding_file="${OUTPUT_VOCABULARY_WORD_EMBEDDING_FILE}"
 ```
 
-#### All-in-one
+* All-in-one
 
 Putting all together, one can just run the following all-in-one command.
 It shall create a new raw-data-flickr30k directory, and generate files in it.
@@ -212,27 +187,43 @@ It shall create a new raw-data-flickr30k directory, and generate files in it.
 sh dataset-tools/download_and_preprocess_flickr30k.sh "raw-data-flickr30k/"
 ```
 
-### Image Ads
-
 ## Training
+
+### Pre-training of a text model
+
+The following command shall launch a process to train the text classifier, which is a 3-layers perceptron model.
+```
+sh train_text.sh "coco17_text"
+```
+
+### Cap2Det training
 
 The difference between the Weakly Supervised Object Detection (WSOD) and Caption-to-Detection (Cap2Det) models, lies in the way of extracting the labels.
 
-We defined abstract LabelExtractor class to control the behavior of label extractors.
+We defined abstract [LabelExtractor](models/label_extractor.py) class to control the behavior of label extractors.
 The following tables show how to set the configure to reproduce the methods in the paper.
 
 | Name                         | Alternative methods in the paper | Configure files                                                                                              |
 |------------------------------|----------------------------------|--------------------------------------------------------------------------------------------------------------|
-| GroundtruthExtractor         | GT-Label                         | [coco17_groundtruth](configs/coco17_groundtruth.pbtxt), [voc07_groundtruth](configs/voc07_groundtruth.pbtxt) |
+| GroundtruthExtractor         | GT-Label (WSOD)                  | [coco17_groundtruth](configs/coco17_groundtruth.pbtxt), [voc07_groundtruth](configs/voc07_groundtruth.pbtxt) |
 | ExactMatchExtractor          | ExactMatch (EM)                  | [coco17_exact_match](configs/coco17_exact_match.pbtxt)                                                       |
 | ExtendMatchExtractor         | EM+ExtendVocab                   | [coco17_extend_match](configs/coco17_extend_match.pbtxt)                                                     |
-| WordVectorMatchExtractor     | EM+GloVePseudo, EM+LearnedGloVe  |                                                                                                              |
-| TextClassifierMatchExtractor | EM+TextClsf                      |                                                                                                              |
+| WordVectorMatchExtractor     | EM+GloVePseudo, EM+LearnedGloVe  | [coco17_word_vector_match](configs/coco17_word_vector_match.pbtxt)                                           |
+| TextClassifierMatchExtractor | EM+TextClsf                      | [coco17_text_classifier_match](configs/coco17_text_classifier_match)                                         |
 
-### Pre-training of a text model
+The command to launch the training process is 
 
-### Cap2Det training
+```
+sh train_cap2det.sh "[CONFIG_NAME]"
 
+# or
+
+sh train_wsod.sh "[CONFIG_NAME]"
+```
+
+Where the [CONFIG_NAME] can be one of the file names in the [configs](configs) directory.
+
+## Our paper
 
 If you found this repository useful, please cite our paper
 

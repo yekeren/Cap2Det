@@ -53,22 +53,22 @@ model {
       text_classifier_checkpoint_file: 'zoo/coco_text_classifier/model.ckpt-50000'
       hidden_units: 400
       dropout_keep_proba: 0.5
-      regularizer: 1e-6
+      regularizer: 1e-5
       label_threshold: 0.7
     }
   }
 }
 train_config {
-  max_steps: 200000
-  learning_rate: 0.002
+  max_steps: 100000
+  learning_rate: 0.1
   learning_rate_decay {
     decay_steps: 20000
-    decay_rate: 0.5
+    decay_rate: 1.0
     staircase: false
   }
   moving_average_decay: 0.0
   optimizer {
-    adam {
+    adagrad {
     }
   }
   sync_replicas: false

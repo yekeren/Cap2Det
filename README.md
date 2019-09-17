@@ -14,7 +14,7 @@
 
 ## Introduction
 
-Implementation of our ICCV 2019 paper "Cap2Det: Learning to AmplifyWeak Caption Supervision for Object Detection".
+Implementation of our ICCV 2019 paper "[Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection](https://arxiv.org/abs/1907.10164)".
 
 <img src="g3doc/images/cap2det.png"/>
 

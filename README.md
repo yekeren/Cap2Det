@@ -223,6 +223,15 @@ sh train_wsod.sh "[CONFIG_NAME]"
 
 Where the [CONFIG_NAME] can be one of the file names in the [configs](configs) directory.
 
+## If you are more interesting with WSOD
+
+The following new config (which uses 2000 proposals and a batch size of 1) improved the VOC07 results in the paper by 2%.
+
+| Methods      | aero | bike | bird | boat | bottle | bus  | car  | cat  | chair | cow  | table | dog  | horse | mbike | person | plant | sheep | sofa | train | tv   | mean |
+|--------------|------|------|------|------|--------|------|------|------|-------|------|-------|------|-------|-------|--------|-------|-------|------|-------|------|------|
+| [In-the-paper](configs/voc07_groundtruth.pbtxt) | 68.7 | 49.7 | 53.3 | 27.6 | 14.1   | 64.3 | 58.1 | 76.0 | 23.6  | 59.8 | 50.7  | 57.4 | 48.1  | 63.0  | 15.5   | 18.4  | 49.7  | 55.0 | 48.4  | 67.8 | 48.5 |
+| [New-config](configs/voc07_inc2.pbtxt) | 64.9 | 55.4 | 59.5 | 25.0 | 22.6   | 71.9 | 71.3 | 61.7 | 26.7  | 54.8 | 52.5  | 50.3 | 45.4  | 63.1  | 22.8   | 26.4  | 45.4  | 61.0 | 66.3  | 66.2 | 50.7 |
+
 ## Our paper
 
 If you found this repository useful, please cite our paper

@@ -22,7 +22,7 @@ if [ ! -f "${PIPELINE_CONFIG_PATH}" ]; then
 fi
 
 
-export CUDA_VISIBLE_DEVICES="0"
+export CUDA_VISIBLE_DEVICES="1"
 python "train/trainer_main.py" \
   --alsologtostderr \
   --pipeline_proto=${PIPELINE_CONFIG_PATH} \

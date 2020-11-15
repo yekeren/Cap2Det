@@ -1,3 +1,5 @@
+Please refer to https://github.com/yekeren/Cap2Det/issues/18 for the details regarding the pre-trained classification model, and the tf variable matching issues.
+
 # Cap2Det
 
   * [Introduction](introduction)

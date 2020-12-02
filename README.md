@@ -52,6 +52,8 @@ To install the packages using the default setting, one can use pip:
 
 ```
 pip install -r "requirements.txt"
+
+sh install-env.sh
 ```
 
 ## Preparing data

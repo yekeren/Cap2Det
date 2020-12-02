@@ -18,6 +18,9 @@ if [ ! -f "${PIPELINE_CONFIG_PATH}" ]; then
   exit 1
 fi
 
+export PYTHONPATH="`pwd`/tensorflow_models/research:$PYTHONPATH"
+export PYTHONPATH="`pwd`/tensorflow_models/research/slim:$PYTHONPATH"
+
 
 HOST0="127.0.0.1"
 

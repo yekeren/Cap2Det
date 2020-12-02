@@ -13,6 +13,11 @@ fi
 cd "tensorflow_models" && git checkout cap2det
 cd -
 
+protoc protos/*.proto --python_out=.
+cd "tensorflow_models/research/"
+protoc object_detection/protos/*.proto --python_out=.
+cd -
+
 # Download the ImageNet pre-trained classification model.
 cd zoo
 model_dir="inception_v2_2016_08_28"

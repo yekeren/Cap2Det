@@ -213,7 +213,7 @@ The following tables show how to set the configure to reproduce the methods in t
 | ExactMatchExtractor          | ExactMatch (EM)                  | [coco17_exact_match](configs/coco17_exact_match.pbtxt)                                                       |
 | ExtendMatchExtractor         | EM+ExtendVocab                   | [coco17_extend_match](configs/coco17_extend_match.pbtxt)                                                     |
 | WordVectorMatchExtractor     | EM+GloVePseudo, EM+LearnedGloVe  | [coco17_word_vector_match](configs/coco17_word_vector_match.pbtxt)                                           |
-| TextClassifierMatchExtractor | EM+TextClsf                      | [coco17_text_classifier_match](configs/coco17_text_classifier_match)                                         |
+| TextClassifierMatchExtractor | EM+TextClsf                      | [coco17_text_classifier_match](configs/coco17_text_classifier_match.pbtxt)                                         |
 
 The command to launch the training process is 
 

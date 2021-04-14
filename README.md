@@ -227,9 +227,9 @@ sh train_wsod.sh "[CONFIG_NAME]"
 
 Where the [CONFIG_NAME] can be one of the file names in the [configs](configs) directory.
 
-## More interesting with the WSOD ?
+## More interested in the WSOD ?
 
-If your are more interesting with the WSOD task, the following new config (which uses 2000 proposals and a batch size of 1) improved the VOC07 results in the paper by 2%. One can also refer to the config file to improve the Cap2Det performance.
+If your are more interested in the WSOD task, the following new config (which uses 2000 proposals and a batch size of 1) improved the VOC07 results in the paper by 2%. One can also refer to the config file to improve the Cap2Det performance.
 
 | Methods      | aero | bike | bird | boat | bottle | bus  | car  | cat  | chair | cow  | table | dog  | horse | mbike | person | plant | sheep | sofa | train | tv   | mean |
 |--------------|------|------|------|------|--------|------|------|------|-------|------|-------|------|-------|-------|--------|-------|-------|------|-------|------|------|
@@ -244,8 +244,8 @@ If you found this repository useful, please cite our paper
 @InProceedings{Ye_2019_ICCV,
   author = {Ye, Keren and Zhang, Mingda and Kovashka, Adriana and Li, Wei and Qin, Danfeng and Berent, Jesse},
   title = {Cap2Det: Learning to Amplify Weak Caption Supervision for Object Detection},
-  booktitle = {The IEEE International Conference on Computer Vision (ICCV)},
-  month = {Oct},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  month = {October},
   year = {2019}
 }
 ```

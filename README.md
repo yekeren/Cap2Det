@@ -1,4 +1,4 @@
-Please refer to https://github.com/yekeren/Cap2Det/issues/18 for the details regarding the pre-trained classification model, and the tf variable matching issues.
+~~Please refer to https://github.com/yekeren/Cap2Det/issues/18 for the details regarding the pre-trained classification model, and the tf variable matching issues.~~ (This issue should be resolved by checking out the forked cap2det branch in "install-env.sh")
 
 # Cap2Det
 
@@ -247,5 +247,17 @@ If you found this repository useful, please cite our paper
   booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
   month = {October},
   year = {2019}
+}
+```
+
+Also, please take a look at our latest work that extracts scene graphs from captions
+
+```
+@InProceedings{Ye_2021_CVPR,
+  author = {Ye, Keren and Kovashka, Adriana},
+  title = {Linguistic Structures as Weak Supervision for Visual Scene Graph Generation},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  month = {June},
+  year = {2021}
 }
 ```

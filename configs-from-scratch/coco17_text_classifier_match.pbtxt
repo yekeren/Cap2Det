@@ -1,12 +1,12 @@
 train_reader {
   cap2det_reader {
-    input_pattern: "raw-data-voc/VOC2007_trainval.record*"
+    input_pattern: "raw-data-coco/coco17_train.record*"
     interleave_cycle_length: 1
     is_training: true
     shuffle_buffer_size: 2000
     map_num_parallel_calls: 10
     prefetch_buffer_size: 500
-    batch_size: 1
+    batch_size: 2
     image_resizer {
       keep_aspect_ratio_resizer {
         min_dimension: 1000
@@ -15,7 +15,7 @@ train_reader {
     preprocess_options {
       random_flip_left_right_prob: 0.5
     }
-    max_num_proposals: 2000
+    max_num_proposals: 500
     batch_resize_scale_value: 1.2
     batch_resize_scale_value: 0.8
     batch_resize_scale_value: 0.6
@@ -24,7 +24,7 @@ train_reader {
 }
 eval_reader {
   cap2det_reader {
-    input_pattern: "raw-data-voc/VOC2007_test.record*"
+    input_pattern: "raw-data-coco/coco17_val.record*"
     interleave_cycle_length: 1
     is_training: false
     shuffle_buffer_size: 500
@@ -36,7 +36,7 @@ eval_reader {
         min_dimension: 1000
       }
     }
-    max_num_proposals: 2000
+    max_num_proposals: 500
   }
 }
 model {
@@ -47,21 +47,19 @@ model {
       feature_extractor {
         type: 'faster_rcnn_inception_v2'
         first_stage_features_stride: 16
-        batch_norm_trainable: false
       }
       initial_crop_size: 14
       maxpool_kernel_size: 2
       maxpool_stride: 2
       dropout_keep_prob: 0.5
       dropout_on_feature_map: false
-      checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
     }
     fc_hyperparams {
       op: FC
-      activation: RELU
+      activation: RELU_6
       regularizer {
         l2_regularizer {
-          weight: 0.0001
+          weight: 0.000001
         }
       }
       initializer {
@@ -91,17 +89,22 @@ model {
     eval_min_dimension: 400
     oicr_use_proba_r_given_c: true
     label_extractor {
-      groundtruth_extractor {
-        label_file: 'data/voc_label.txt'
+      text_classifier_match_extractor {
+        label_file: 'data/coco_label.txt'
+        open_vocabulary_file: 'data/coco_open_vocab.txt'
+        open_vocabulary_word_embedding_file: 'data/coco_open_vocab_300d.npy'
+        text_classifier_checkpoint_file: 'zoo/coco17_text/model.ckpt-200000'
+        hidden_units: 400
+        label_threshold: 0.7
       }
     }
   }
 }
 train_config {
-  max_steps: 100000
+  max_steps: 500000
   learning_rate: 0.01
   learning_rate_decay {
-    decay_steps: 100000
+    decay_steps: 200000
     decay_rate: 1.0
     staircase: true
   }
@@ -118,10 +121,14 @@ train_config {
     scope: 'second_stage_feature_extraction'
     multiplier: 1.0
   }
+  gradient_multiplier {
+    scope: 'first_stage_feature_extraction/InceptionV2/Mixed_4e'
+    multiplier: 1.0
+  }
   sync_replicas: false
   save_summary_steps: 2000
   save_checkpoints_steps: 2000
-  keep_checkpoint_max: 5
+  keep_checkpoint_max: 10
   log_step_count_steps: 10
 }
 eval_config {

@@ -1,6 +1,6 @@
 train_reader {
   cap2det_reader {
-    input_pattern: "raw-data-coco/coco17_train.record*"
+    input_pattern: "raw-data-voc/VOC2007_trainval.record*"
     interleave_cycle_length: 1
     is_training: true
     shuffle_buffer_size: 2000
@@ -24,7 +24,7 @@ train_reader {
 }
 eval_reader {
   cap2det_reader {
-    input_pattern: "raw-data-coco/coco17_val.record*"
+    input_pattern: "raw-data-voc/VOC2007_test.record*"
     interleave_cycle_length: 1
     is_training: false
     shuffle_buffer_size: 500
@@ -53,7 +53,6 @@ model {
       maxpool_stride: 2
       dropout_keep_prob: 0.5
       dropout_on_feature_map: false
-      checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
     }
     fc_hyperparams {
       op: FC
@@ -90,17 +89,17 @@ model {
     eval_min_dimension: 400
     oicr_use_proba_r_given_c: true
     label_extractor {
-      extend_match_extractor {
-        label_file: 'data/coco_label_synonyms.txt'
+      groundtruth_extractor {
+        label_file: 'data/voc_label.txt'
       }
     }
   }
 }
 train_config {
-  max_steps: 500000
+  max_steps: 100000
   learning_rate: 0.01
   learning_rate_decay {
-    decay_steps: 200000
+    decay_steps: 100000
     decay_rate: 1.0
     staircase: true
   }

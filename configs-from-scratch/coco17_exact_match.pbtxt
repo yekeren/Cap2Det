@@ -1,6 +1,6 @@
 train_reader {
   cap2det_reader {
-    input_pattern: "raw-data-coco/coco17_train.record*"
+    input_pattern: "output/coco17_train.record*"
     interleave_cycle_length: 1
     is_training: true
     shuffle_buffer_size: 2000
@@ -24,7 +24,7 @@ train_reader {
 }
 eval_reader {
   cap2det_reader {
-    input_pattern: "raw-data-coco/coco17_val.record*"
+    input_pattern: "output/coco17_val.record*"
     interleave_cycle_length: 1
     is_training: false
     shuffle_buffer_size: 500
@@ -53,7 +53,6 @@ model {
       maxpool_stride: 2
       dropout_keep_prob: 0.5
       dropout_on_feature_map: false
-      checkpoint_path: 'zoo/inception_v2_2016_08_28/inception_v2.ckpt'
     }
     fc_hyperparams {
       op: FC
@@ -90,10 +89,8 @@ model {
     eval_min_dimension: 400
     oicr_use_proba_r_given_c: true
     label_extractor {
-      word_vector_match_extractor {
+      exact_match_extractor {
         label_file: 'data/coco_label.txt'
-        open_vocabulary_file: 'data/coco_open_vocab.txt'
-        open_vocabulary_word_embedding_file: 'data/coco_open_vocab_300d.npy'
       }
     }
   }

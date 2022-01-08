@@ -38,25 +38,44 @@ def get_input_fn(options):
       feature_dict: a dict mapping from names to tensors.
     """
     example_fmt = {
-        TFExampleDataFields.image_id: tf.FixedLenFeature((), tf.string),
-        TFExampleDataFields.image_encoded: tf.FixedLenFeature((), tf.string),
-        TFExampleDataFields.caption_string: tf.VarLenFeature(tf.string),
-        TFExampleDataFields.caption_offset: tf.VarLenFeature(tf.int64),
-        TFExampleDataFields.caption_length: tf.VarLenFeature(tf.int64),
-        TFExampleDataFields.object_box_ymin: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.object_box_xmin: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.object_box_ymax: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.object_box_xmax: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.object_label: tf.VarLenFeature(tf.int64),
-        TFExampleDataFields.object_text: tf.VarLenFeature(tf.string),
-        TFExampleDataFields.proposal_box_ymin: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.proposal_box_xmin: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.proposal_box_ymax: tf.VarLenFeature(tf.float32),
-        TFExampleDataFields.proposal_box_xmax: tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.image_id:
+            tf.FixedLenFeature((), tf.string),
+        TFExampleDataFields.image_encoded:
+            tf.FixedLenFeature((), tf.string),
+        TFExampleDataFields.caption_string:
+            tf.VarLenFeature(tf.string),
+        TFExampleDataFields.caption_offset:
+            tf.VarLenFeature(tf.int64),
+        TFExampleDataFields.caption_length:
+            tf.VarLenFeature(tf.int64),
+        TFExampleDataFields.object_box_ymin:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.object_box_xmin:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.object_box_ymax:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.object_box_xmax:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.object_label:
+            tf.VarLenFeature(tf.int64),
+        TFExampleDataFields.object_text:
+            tf.VarLenFeature(tf.string),
+        TFExampleDataFields.proposal_box_ymin:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.proposal_box_xmin:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.proposal_box_ymax:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.proposal_box_xmax:
+            tf.VarLenFeature(tf.float32),
+        TFExampleDataFields.example_weight:
+            tf.FixedLenFeature((), tf.float32, default_value=1.0),
     }
-    parsed = tf.parse_single_example(
-        example, example_fmt, name=OperationNames.parse_single_example)
+    parsed = tf.parse_single_example(example,
+                                     example_fmt,
+                                     name=OperationNames.parse_single_example)
     image_id = parsed[TFExampleDataFields.image_id]
+    example_weight = parsed[TFExampleDataFields.example_weight]
 
     # Caption annotations.
 
@@ -68,11 +87,12 @@ def get_input_fn(options):
       lengths = tf.sparse_tensor_to_dense(
           parsed[TFExampleDataFields.caption_length], default_value=0)
 
-      (num_captions, caption_strings, caption_lengths) = preprocess.parse_texts(
-          tokens, offsets, lengths)
+      (num_captions, caption_strings,
+       caption_lengths) = preprocess.parse_texts(tokens, offsets, lengths)
 
     feature_dict = {
         InputDataFields.image_id: image_id,
+        InputDataFields.example_weight: example_weight,
         InputDataFields.num_captions: num_captions,
         InputDataFields.caption_strings: caption_strings,
         InputDataFields.caption_lengths: caption_lengths,
@@ -81,12 +101,12 @@ def get_input_fn(options):
     }
 
     # Image data; operations - data augmentation operations applied.
-    
+
     operations = None
     if options.decode_image:
       with tf.name_scope(OperationNames.decode_image):
-        image = tf.image.decode_jpeg(
-            parsed[TFExampleDataFields.image_encoded], channels=_IMAGE_CHANNELS)
+        image = tf.image.decode_jpeg(parsed[TFExampleDataFields.image_encoded],
+                                     channels=_IMAGE_CHANNELS)
         if options.HasField("preprocess_options"):
           image, operations = preprocess.preprocess_image_v2(
               image, options.preprocess_options)
@@ -217,19 +237,20 @@ def get_input_fn(options):
       a dataset that can be fed to estimator.
     """
     input_pattern = [elem for elem in options.input_pattern]
-    files = tf.data.Dataset.list_files(
-        input_pattern, shuffle=options.is_training)
-    dataset = files.interleave(
-        tf.data.TFRecordDataset, cycle_length=options.interleave_cycle_length)
+    files = tf.data.Dataset.list_files(input_pattern,
+                                       shuffle=options.is_training)
+    dataset = files.interleave(tf.data.TFRecordDataset,
+                               cycle_length=options.interleave_cycle_length)
     if options.is_training:
       dataset = dataset.repeat().shuffle(options.shuffle_buffer_size)
-    dataset = dataset.map(
-        map_func=_parse_fn, num_parallel_calls=options.map_num_parallel_calls)
+    dataset = dataset.map(map_func=_parse_fn,
+                          num_parallel_calls=options.map_num_parallel_calls)
     if options.shard_indicator:
       dataset = dataset.filter(predicate=_filter_fn)
 
     padded_shapes = {
         InputDataFields.image_id: [],
+        InputDataFields.example_weight: [],
         InputDataFields.num_captions: [],
         InputDataFields.caption_strings: [None, None],
         InputDataFields.caption_lengths: [None],
@@ -249,14 +270,15 @@ def get_input_fn(options):
           InputDataFields.image_shape: [3],
       })
 
-    dataset = dataset.padded_batch(
-        options.batch_size, padded_shapes=padded_shapes, drop_remainder=True)
+    dataset = dataset.padded_batch(options.batch_size,
+                                   padded_shapes=padded_shapes,
+                                   drop_remainder=True)
 
     # Randomly resize image according to the batch scale values.
 
     if options.decode_image and len(options.batch_resize_scale_value) > 0:
-      dataset = dataset.map(
-          map_func=_batch_resize_image_fn, num_parallel_calls=1)
+      dataset = dataset.map(map_func=_batch_resize_image_fn,
+                            num_parallel_calls=1)
 
     # Scale the proposal and object boxes according to the padding facts.
 

@@ -26,7 +26,6 @@ from object_detection.utils import object_detection_evaluation
 from object_detection.metrics import coco_evaluation
 from object_detection.utils.visualization_utils import draw_bounding_box_on_image_array
 
-
 from tensorflow.python.platform import tf_logging as logging
 
 flags = tf.app.flags
@@ -47,8 +46,7 @@ flags.DEFINE_string('saved_ckpts_dir', '',
 flags.DEFINE_string('eval_log_dir', '',
                     'Path to the directory saving eval logs.')
 
-flags.DEFINE_string('label_file', '',
-                    'Path to the detection label file.')
+flags.DEFINE_string('label_file', '', 'Path to the detection label file.')
 
 flags.DEFINE_integer('max_eval_examples', 500,
                      'Number of examples to evaluate.')
@@ -207,15 +205,14 @@ def _visualize(examples, categories, filename):
       for i in range(num_gt_boxes):
         ymin, xmin, ymax, xmax = gt_boxes[i]
         label = gt_labels[i].decode('ascii')
-        draw_bounding_box_on_image_array(
-            image_with_gt,
-            ymin,
-            xmin,
-            ymax,
-            xmax,
-            color='red',
-            display_str_list=[label],
-            use_normalized_coordinates=True)
+        draw_bounding_box_on_image_array(image_with_gt,
+                                         ymin,
+                                         xmin,
+                                         ymax,
+                                         xmax,
+                                         color='red',
+                                         display_str_list=[label],
+                                         use_normalized_coordinates=True)
       image_with_gt = cv2.cvtColor(image_with_gt, cv2.COLOR_RGB2BGR)
       gt_base64 = plotlib._py_convert_to_base64(image_with_gt)
 
@@ -239,30 +236,29 @@ def _visualize(examples, categories, filename):
         score = dt_scores[i]
         label = '%s:%d%%' % (dt_labels[i].decode('ascii'),
                              int(score * 100 + 0.5))
-        draw_bounding_box_on_image_array(
-            image_with_dt,
-            ymin,
-            xmin,
-            ymax,
-            xmax,
-            color=STANDARD_COLORS[int(dt_classes[i])],
-            display_str_list=[label],
-            use_normalized_coordinates=True)
+        draw_bounding_box_on_image_array(image_with_dt,
+                                         ymin,
+                                         xmin,
+                                         ymax,
+                                         xmax,
+                                         color=STANDARD_COLORS[int(
+                                             dt_classes[i])],
+                                         display_str_list=[label],
+                                         use_normalized_coordinates=True)
       for i in range(num_dt_boxes - 1, -1, -1):
         if precision_mask[i]:
           ymin, xmin, ymax, xmax = dt_boxes[i]
           score = dt_scores[i]
           label = '%s:%d%%' % (dt_labels[i].decode('ascii'),
                                int(score * 100 + 0.5))
-          draw_bounding_box_on_image_array(
-              image_with_dt,
-              ymin,
-              xmin,
-              ymax,
-              xmax,
-              color='lime',
-              display_str_list=[label],
-              use_normalized_coordinates=True)
+          draw_bounding_box_on_image_array(image_with_dt,
+                                           ymin,
+                                           xmin,
+                                           ymax,
+                                           xmax,
+                                           color='lime',
+                                           display_str_list=[label],
+                                           use_normalized_coordinates=True)
 
       image_with_dt = cv2.cvtColor(image_with_dt, cv2.COLOR_RGB2BGR)
       dt_base64 = plotlib._py_convert_to_base64(image_with_dt)
@@ -319,8 +315,8 @@ def _convert_coco_result_to_voc(boxes, scores, classes):
       det_scores.append(score)
       det_classes.append(coco_to_voc[int(cls)])
   if len(det_boxes) > 0:
-    return np.stack(det_boxes, 0), np.stack(det_scores, 0), np.stack(
-        det_classes, 0)
+    return np.stack(det_boxes, 0), np.stack(det_scores,
+                                            0), np.stack(det_classes, 0)
   else:
     return np.zeros((0, 4)), np.zeros((0)), np.zeros((0), dtype=np.int64)
 
@@ -377,28 +373,28 @@ def _run_evaluation(pipeline_proto,
         evaluator.add_single_ground_truth_image_info(
             image_id, {
                 'groundtruth_boxes':
-                box_utils.py_coord_norm_to_abs(
-                    groundtruth_boxes[:num_groundtruths], image_height,
-                    image_width),
+                    box_utils.py_coord_norm_to_abs(
+                        groundtruth_boxes[:num_groundtruths], image_height,
+                        image_width),
                 'groundtruth_classes':
-                np.array([
-                    category_to_id[x.decode('ascii')]
-                    for x in groundtruth_classes[:num_groundtruths]
-                ]),
+                    np.array([
+                        category_to_id[x.decode('ascii')]
+                        for x in groundtruth_classes[:num_groundtruths]
+                    ]),
                 'groundtruth_difficult':
-                np.zeros([num_groundtruths], dtype=np.bool)
+                    np.zeros([num_groundtruths], dtype=np.bool)
             })
         if not FLAGS.eval_coco_on_voc:
           evaluator.add_single_detected_image_info(
               image_id, {
                   'detection_boxes':
-                  box_utils.py_coord_norm_to_abs(
-                      detection_boxes[:num_detections], image_height,
-                      image_width),
+                      box_utils.py_coord_norm_to_abs(
+                          detection_boxes[:num_detections], image_height,
+                          image_width),
                   'detection_scores':
-                  detection_scores[:num_detections],
+                      detection_scores[:num_detections],
                   'detection_classes':
-                  detection_classes[:num_detections]
+                      detection_classes[:num_detections]
               })
         else:
           det_boxes, det_scores, det_classes = _convert_coco_result_to_voc(
@@ -423,27 +419,27 @@ def _run_evaluation(pipeline_proto,
       if len(visl_examples) < FLAGS.max_visl_examples:
         visl_example = {
             InputDataFields.image_id:
-            examples[InputDataFields.image_id][i],
+                examples[InputDataFields.image_id][i],
             InputDataFields.image:
-            examples[InputDataFields.image][i],
+                examples[InputDataFields.image][i],
             InputDataFields.image_height:
-            examples[InputDataFields.image_height][i],
+                examples[InputDataFields.image_height][i],
             InputDataFields.image_width:
-            examples[InputDataFields.image_width][i],
+                examples[InputDataFields.image_width][i],
             InputDataFields.num_objects:
-            examples[InputDataFields.num_objects][i],
+                examples[InputDataFields.num_objects][i],
             InputDataFields.object_boxes:
-            examples[InputDataFields.object_boxes][i],
+                examples[InputDataFields.object_boxes][i],
             InputDataFields.object_texts:
-            examples[InputDataFields.object_texts][i],
+                examples[InputDataFields.object_texts][i],
             DetectionResultFields.num_detections:
-            num_detections,
+                num_detections,
             DetectionResultFields.detection_boxes:
-            detection_boxes,
+                detection_boxes,
             DetectionResultFields.detection_scores:
-            detection_scores,
+                detection_scores,
             DetectionResultFields.detection_classes:
-            detection_classes
+                detection_classes
         }
         for name in [
             InputDataFields.num_captions, InputDataFields.caption_strings,
@@ -506,15 +502,16 @@ def _run_evaluation(pipeline_proto,
                if 'AP' in k]
 
         filename = os.path.join(FLAGS.results_dir,
-                                FLAGS.pipeline_proto.split('/')[-1])
-        filename = filename.replace('pbtxt',
-                                    'csv') + '.iter_{}'.format(oicr_iter)
+                                FLAGS.model_dir.split('/')[-1])
+        filename += '.csv'
         with open(filename, 'w') as fid:
           fid.write('{}\n'.format(eval_count))
           fid.write('\n')
           for lst in [mAP, corloc]:
-            line1 = ','.join([k for k, _ in lst]).replace(
-                '@0.5IOU', '').replace('AP/', '').replace('CorLoc/', '')
+            line1 = ','.join([k for k, _ in lst
+                             ]).replace('@0.5IOU',
+                                        '').replace('AP/',
+                                                    '').replace('CorLoc/', '')
             line2 = ' , '.join(['%.1lf' % (v * 100) for _, v in lst])
 
             fid.write(line1 + '\n')
@@ -542,7 +539,8 @@ def main(_):
 
   if FLAGS.input_pattern:
     pipeline_proto.eval_reader.cap2det_reader.input_pattern[:] = []
-    pipeline_proto.eval_reader.cap2det_reader.input_pattern.append(FLAGS.input_pattern)
+    pipeline_proto.eval_reader.cap2det_reader.input_pattern.append(
+        FLAGS.input_pattern)
     tf.logging.info("Override input_pattern: %s", FLAGS.input_pattern)
 
   tf.logging.info("Pipeline configure: %s", '=' * 128)
@@ -619,13 +617,12 @@ def main(_):
       checkpoint_path = tf.train.latest_checkpoint(FLAGS.model_dir)
     tf.logging.info('Start to evaluate checkpoint %s.', checkpoint_path)
 
-    summary, metric = _run_evaluation(
-        pipeline_proto,
-        checkpoint_path,
-        evaluators,
-        category_to_id,
-        categories,
-        save_report_to_file=True)
+    summary, metric = _run_evaluation(pipeline_proto,
+                                      checkpoint_path,
+                                      evaluators,
+                                      category_to_id,
+                                      categories,
+                                      save_report_to_file=True)
 
   tf.logging.info('Done')
 

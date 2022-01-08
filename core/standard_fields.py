@@ -63,6 +63,8 @@ class TFExampleDataFields(object):
   object_box_ymax = "image/object/bbox/ymax"
   object_box_xmax = "image/object/bbox/xmax"
 
+  example_weight = 'image/example/score'
+
 
 class InputDataFields(object):
   """Names of the input tensors."""
@@ -94,6 +96,8 @@ class InputDataFields(object):
   num_proposals = 'number_of_proposals'
 
   pseudo_groundtruth_prediction = 'pseudo_groundtruth_prediction'
+
+  example_weight = 'example_weight'
 
 
 class DetectionResultFields(object):
@@ -130,5 +134,3 @@ class Cap2DetPredictions(object):
 
   midn_proba_r_given_c = 'midn_proba_r_given_c'
   midn_proba_h_given_c = 'midn_proba_h_given_c'
-
-

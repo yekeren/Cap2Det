@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-
 import tensorflow as tf
 import numpy as np
 
@@ -67,8 +66,9 @@ class Model(ModelBase):
     with tf.name_scope('multi_instance_detection'):
 
       batch, max_num_proposals, _ = utils.get_tensor_shape(proposal_features)
-      mask = tf.sequence_mask(
-          num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
+      mask = tf.sequence_mask(num_proposals,
+                              maxlen=max_num_proposals,
+                              dtype=tf.float32)
       mask = tf.expand_dims(mask, axis=-1)
 
       # Calculates the values of following tensors:
@@ -76,21 +76,21 @@ class Model(ModelBase):
       #   logits_c_given_r shape = [batch, max_num_proposals, num_classes].
 
       with tf.variable_scope('midn'):
-        logits_r_given_c = slim.fully_connected(
-            proposal_features,
-            num_outputs=num_classes,
-            activation_fn=None,
-            scope='proba_r_given_c')
-        logits_c_given_r = slim.fully_connected(
-            proposal_features,
-            num_outputs=num_classes,
-            activation_fn=None,
-            scope='proba_c_given_r')
+        logits_r_given_c = slim.fully_connected(proposal_features,
+                                                num_outputs=num_classes,
+                                                activation_fn=None,
+                                                scope='proba_r_given_c')
+        logits_c_given_r = slim.fully_connected(proposal_features,
+                                                num_outputs=num_classes,
+                                                activation_fn=None,
+                                                scope='proba_c_given_r')
 
       # Calculates the detection scores.
 
-      proba_r_given_c = utils.masked_softmax(
-          data=tf.multiply(mask, logits_r_given_c), mask=mask, dim=1)
+      proba_r_given_c = utils.masked_softmax(data=tf.multiply(
+          mask, logits_r_given_c),
+                                             mask=mask,
+                                             dim=1)
       proba_r_given_c = tf.multiply(mask, proba_r_given_c)
 
       # Aggregates the logits.
@@ -98,8 +98,8 @@ class Model(ModelBase):
       class_logits = tf.multiply(logits_c_given_r, proba_r_given_c)
       class_logits = utils.masked_sum(data=class_logits, mask=mask, dim=1)
 
-      proposal_scores = tf.multiply(
-          tf.nn.sigmoid(class_logits), proba_r_given_c)
+      proposal_scores = tf.multiply(tf.nn.sigmoid(class_logits),
+                                    proba_r_given_c)
 
       tf.summary.histogram('midn/logits_r_given_c', logits_r_given_c)
       tf.summary.histogram('midn/logits_c_given_r', logits_c_given_r)
@@ -189,8 +189,9 @@ class Model(ModelBase):
 
     with slim.arg_scope(build_hyperparams(options.fc_hyperparams, is_training)):
       for i in range(options.oicr_iterations):
-        predictions[Cap2DetPredictions.oicr_proposal_scores + '_at_{}'.format(
-            i + 1)] = proposal_scores = slim.fully_connected(
+        predictions[
+            Cap2DetPredictions.oicr_proposal_scores +
+            '_at_{}'.format(i + 1)] = proposal_scores = slim.fully_connected(
                 proposal_features,
                 num_outputs=1 + self._label_extractor.num_classes,
                 activation_fn=None,
@@ -200,17 +201,17 @@ class Model(ModelBase):
 
     predictions.update({
         DetectionResultFields.class_labels:
-        tf.constant(self._label_extractor.classes),
+            tf.constant(self._label_extractor.classes),
         DetectionResultFields.num_proposals:
-        num_proposals,
+            num_proposals,
         DetectionResultFields.proposal_boxes:
-        proposals,
+            proposals,
         Cap2DetPredictions.midn_class_logits:
-        midn_class_logits,
+            midn_class_logits,
         Cap2DetPredictions.midn_proba_r_given_c:
-        midn_proba_r_given_c,
+            midn_proba_r_given_c,
         Cap2DetPredictions.oicr_proposal_scores + '_at_0':
-        midn_proposal_scores
+            midn_proposal_scores
     })
 
     return predictions
@@ -242,9 +243,9 @@ class Model(ModelBase):
 
     reuse = False
     for min_dimension in options.eval_min_dimension:
-      inputs_resized = tf.expand_dims(
-          imgproc.resize_image_to_min_dimension(inputs[0], min_dimension)[0],
-          axis=0)
+      inputs_resized = tf.expand_dims(imgproc.resize_image_to_min_dimension(
+          inputs[0], min_dimension)[0],
+                                      axis=0)
       examples[InputDataFields.image] = inputs_resized
 
       with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
@@ -282,6 +283,8 @@ class Model(ModelBase):
       loss_dict: dict of loss tensors keyed by name.
     """
     options = self._model_proto
+    example_weight = examples[InputDataFields.example_weight]
+    tf.summary.histogram('example_weight', example_weight)
 
     loss_dict = {}
 
@@ -293,6 +296,7 @@ class Model(ModelBase):
       losses = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=labels,
           logits=predictions[Cap2DetPredictions.midn_class_logits])
+      losses = losses * tf.expand_dims(example_weight, 1)
       loss_dict['midn_cross_entropy_loss'] = tf.multiply(
           tf.reduce_mean(losses), options.midn_loss_weight)
 
@@ -314,7 +318,7 @@ class Model(ModelBase):
       for i in range(options.oicr_iterations):
         proposal_scores_1 = predictions[Cap2DetPredictions.oicr_proposal_scores
                                         + '_at_{}'.format(i + 1)]
-        oicr_cross_entropy_loss_at_i = model_utils.calc_oicr_loss(
+        oicr_cross_entropy_losses_at_i = model_utils.calc_oicr_loss(
             labels,
             num_proposals,
             proposals,
@@ -322,6 +326,9 @@ class Model(ModelBase):
             proposal_scores_1,
             scope='oicr_{}'.format(i + 1),
             iou_threshold=options.oicr_iou_threshold)
+        oicr_cross_entropy_losses_at_i = oicr_cross_entropy_losses_at_i * example_weight
+        oicr_cross_entropy_loss_at_i = tf.reduce_mean(
+            oicr_cross_entropy_losses_at_i)
         loss_dict['oicr_cross_entropy_loss_at_{}'.format(i + 1)] = tf.multiply(
             oicr_cross_entropy_loss_at_i, options.oicr_loss_weight)
 

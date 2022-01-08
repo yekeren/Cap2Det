@@ -179,6 +179,10 @@ def extract_frcnn_feature(inputs,
   proposal_features = tf.reshape(flattened_roi_pooled_features,
                                  [batch, max_num_proposals, -1])
 
+  # Allow to train from scratch (resolving journal review comments).
+  if not options.checkpoint_path:
+    return proposal_features
+
   # Assign weights from pre-trained checkpoint.
 
   if not options.from_detection_checkpoint:

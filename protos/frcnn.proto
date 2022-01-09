@@ -1,5 +1,15 @@
 syntax = "proto2";
 
+import "protos/hyperparams.proto";
+
+message ProjectionLayer {
+  optional Hyperparams fc_hyperparams = 1;
+
+  optional int32 output_dims = 2;
+
+  optional string scope = 3 [ default = 'detection/project'];
+}
+
 // FRCNN configs.
 message FRCNN {
   // Feature extractor config.
@@ -30,6 +40,13 @@ message FRCNN {
 
   // Path to the pre-trained checkpoint.
   optional string checkpoint_path = 8;
+
+  // If true, the pretrained model involves scopes such as:
+  //   first_stage_feature_extraction and second_stage_feature_extraction
+  optional bool from_detection_checkpoint = 9;
+
+  // If true, also load the pretrained layer of 'detection/project'.
+  optional ProjectionLayer projection_layer = 10;
 }
 
 message FasterRcnnFeatureExtractor {

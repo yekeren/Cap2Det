@@ -6,8 +6,8 @@ import tensorflow as tf
 
 from core import utils
 from core import box_utils
+from core.training_utils import build_hyperparams
 from object_detection.builders.model_builder import _build_faster_rcnn_feature_extractor as build_faster_rcnn_feature_extractor
-
 
 slim = tf.contrib.slim
 
@@ -41,10 +41,12 @@ def calc_oicr_loss(labels,
     # For each class, look for the most confident proposal.
     #   proposal_ind shape = [batch, num_classes].
 
-    proposal_mask = tf.sequence_mask(
-        num_proposals, maxlen=max_num_proposals, dtype=tf.float32)
-    proposal_ind = utils.masked_argmax(
-        scores_0[:, :, 1:], tf.expand_dims(proposal_mask, axis=-1), dim=1)
+    proposal_mask = tf.sequence_mask(num_proposals,
+                                     maxlen=max_num_proposals,
+                                     dtype=tf.float32)
+    proposal_ind = utils.masked_argmax(scores_0[:, :, 1:],
+                                       tf.expand_dims(proposal_mask, axis=-1),
+                                       dim=1)
 
     # Deal with the most confident proposal per each class.
     #   Unstack the `proposal_ind`, `labels`.
@@ -52,8 +54,8 @@ def calc_oicr_loss(labels,
 
     proposal_labels = []
     indices_0 = tf.range(batch, dtype=tf.int64)
-    for indices_1, label_per_class in zip(
-        tf.unstack(proposal_ind, axis=-1), tf.unstack(labels, axis=-1)):
+    for indices_1, label_per_class in zip(tf.unstack(proposal_ind, axis=-1),
+                                          tf.unstack(labels, axis=-1)):
 
       # Gather the most confident proposal for the class.
       #   confident_proosal shape = [batch, 4].
@@ -66,9 +68,8 @@ def calc_oicr_loss(labels,
 
       confident_proposal_tiled = tf.tile(
           tf.expand_dims(confident_proposal, axis=1), [1, max_num_proposals, 1])
-      iou = box_utils.iou(
-          tf.reshape(proposals, [-1, 4]),
-          tf.reshape(confident_proposal_tiled, [-1, 4]))
+      iou = box_utils.iou(tf.reshape(proposals, [-1, 4]),
+                          tf.reshape(confident_proposal_tiled, [-1, 4]))
       iou = tf.reshape(iou, [batch, max_num_proposals])
 
       # Filter out irrelevant predictions using image-level label.
@@ -99,10 +100,13 @@ def calc_oicr_loss(labels,
     with tf.control_dependencies([assert_op]):
       losses = tf.nn.softmax_cross_entropy_with_logits(
           labels=tf.stop_gradient(proposal_labels), logits=scores_1)
-      oicr_cross_entropy_loss = tf.reduce_mean(
-          utils.masked_avg(data=losses, mask=proposal_mask, dim=1))
+      # oicr_cross_entropy_loss = tf.reduce_mean(
+      #     utils.masked_avg(data=losses, mask=proposal_mask, dim=1))
+      oicr_cross_entropy_losses = utils.masked_avg(data=losses,
+                                                   mask=proposal_mask,
+                                                   dim=1)
 
-  return oicr_cross_entropy_loss
+  return tf.squeeze(oicr_cross_entropy_losses, 1)
 
 
 def extract_frcnn_feature(inputs,
@@ -136,10 +140,9 @@ def extract_frcnn_feature(inputs,
       preprocessed_inputs, scope='first_stage_feature_extraction')
 
   if options.dropout_on_feature_map:
-    features_to_crop = slim.dropout(
-        features_to_crop,
-        keep_prob=options.dropout_keep_prob,
-        is_training=is_training)
+    features_to_crop = slim.dropout(features_to_crop,
+                                    keep_prob=options.dropout_keep_prob,
+                                    is_training=is_training)
 
   # Crop `flattened_proposal_features_maps`.
   #   shape = [batch*max_num_proposals, crop_size, crop_size, feature_depth].
@@ -162,12 +165,12 @@ def extract_frcnn_feature(inputs,
   # Extract `proposal_features`,
   #   shape = [batch, max_num_proposals, feature_dims].
 
-  (box_classifier_features
-  ) = feature_extractor.extract_box_classifier_features(
+  (box_classifier_features) = feature_extractor.extract_box_classifier_features(
       flattened_proposal_features_maps, scope='second_stage_feature_extraction')
 
-  flattened_roi_pooled_features = tf.reduce_mean(
-      box_classifier_features, [1, 2], name='AvgPool')
+  flattened_roi_pooled_features = tf.reduce_mean(box_classifier_features,
+                                                 [1, 2],
+                                                 name='AvgPool')
   flattened_roi_pooled_features = slim.dropout(
       flattened_roi_pooled_features,
       keep_prob=options.dropout_keep_prob,
@@ -176,13 +179,46 @@ def extract_frcnn_feature(inputs,
   proposal_features = tf.reshape(flattened_roi_pooled_features,
                                  [batch, max_num_proposals, -1])
 
+  # Allow to train from scratch (resolving journal review comments).
+  if not options.checkpoint_path:
+    return proposal_features
+
   # Assign weights from pre-trained checkpoint.
 
-  tf.train.init_from_checkpoint(
-      options.checkpoint_path,
-      assignment_map={"/": "first_stage_feature_extraction/"})
-  tf.train.init_from_checkpoint(
-      options.checkpoint_path,
-      assignment_map={"/": "second_stage_feature_extraction/"})
+  if not options.from_detection_checkpoint:
+    tf.train.init_from_checkpoint(
+        options.checkpoint_path,
+        assignment_map={"/": "first_stage_feature_extraction/"})
+    tf.train.init_from_checkpoint(
+        options.checkpoint_path,
+        assignment_map={"/": "second_stage_feature_extraction/"})
+  else:
+    tf.train.init_from_checkpoint(options.checkpoint_path,
+                                  assignment_map={
+                                      "FirstStageFeatureExtractor/":
+                                          "first_stage_feature_extraction/"
+                                  })
+    tf.train.init_from_checkpoint(options.checkpoint_path,
+                                  assignment_map={
+                                      "SecondStageFeatureExtractor/":
+                                          "second_stage_feature_extraction/"
+                                  })
+    if options.HasField('projection_layer'):
+      projection_layer_config = options.projection_layer
+
+      with slim.arg_scope(
+          build_hyperparams(projection_layer_config.fc_hyperparams,
+                            is_training=is_training)):
+        proposal_features = slim.fully_connected(
+            proposal_features,
+            projection_layer_config.output_dims,
+            activation_fn=None,
+            scope=projection_layer_config.scope)
+
+      tf.train.init_from_checkpoint(options.checkpoint_path,
+                                    assignment_map={
+                                        projection_layer_config.scope + '/':
+                                            projection_layer_config.scope + '/'
+                                    })
 
   return proposal_features

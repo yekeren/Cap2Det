@@ -139,8 +139,8 @@ def create_tf_example(image,
   image = PIL.Image.open(encoded_jpg_io)
   key = hashlib.sha256(encoded_jpg).hexdigest()
 
-  npy_path = os.path.join(proposal_data_path, '{}/{}.npy'.format(
-      image_id % 10, image_id))
+  npy_path = os.path.join(proposal_data_path,
+                          '{}/{}.npy'.format(image_id % 10, image_id))
 
   with open(npy_path, 'rb') as fid:
     proposals = np.load(fid)
@@ -196,49 +196,49 @@ def create_tf_example(image,
 
   feature_dict = {
       'image/height':
-      dataset_util.int64_feature(image_height),
+          dataset_util.int64_feature(image_height),
       'image/width':
-      dataset_util.int64_feature(image_width),
+          dataset_util.int64_feature(image_width),
       'image/filename':
-      dataset_util.bytes_feature(filename.encode('utf8')),
+          dataset_util.bytes_feature(filename.encode('utf8')),
       'image/source_id':
-      dataset_util.bytes_feature(str(image_id).encode('utf8')),
+          dataset_util.bytes_feature(str(image_id).encode('utf8')),
       'image/key/sha256':
-      dataset_util.bytes_feature(key.encode('utf8')),
+          dataset_util.bytes_feature(key.encode('utf8')),
       'image/encoded':
-      dataset_util.bytes_feature(encoded_jpg),
+          dataset_util.bytes_feature(encoded_jpg),
       'image/format':
-      dataset_util.bytes_feature('jpeg'.encode('utf8')),
+          dataset_util.bytes_feature('jpeg'.encode('utf8')),
       'image/object/bbox/xmin':
-      dataset_util.float_list_feature(xmin),
+          dataset_util.float_list_feature(xmin),
       'image/object/bbox/xmax':
-      dataset_util.float_list_feature(xmax),
+          dataset_util.float_list_feature(xmax),
       'image/object/bbox/ymin':
-      dataset_util.float_list_feature(ymin),
+          dataset_util.float_list_feature(ymin),
       'image/object/bbox/ymax':
-      dataset_util.float_list_feature(ymax),
+          dataset_util.float_list_feature(ymax),
       'image/object/class/label':
-      dataset_util.int64_list_feature(category_ids),
+          dataset_util.int64_list_feature(category_ids),
       'image/object/class/text':
-      dataset_util.bytes_list_feature(category_names),
+          dataset_util.bytes_list_feature(category_names),
       'image/object/is_crowd':
-      dataset_util.int64_list_feature(is_crowd),
+          dataset_util.int64_list_feature(is_crowd),
       'image/object/area':
-      dataset_util.float_list_feature(area),
+          dataset_util.float_list_feature(area),
       'image/caption/string':
-      dataset_util.bytes_list_feature(caption_string),
+          dataset_util.bytes_list_feature(caption_string),
       'image/caption/offset':
-      dataset_util.int64_list_feature(caption_offset),
+          dataset_util.int64_list_feature(caption_offset),
       'image/caption/length':
-      dataset_util.int64_list_feature(caption_length),
+          dataset_util.int64_list_feature(caption_length),
       'image/proposal/bbox/ymin':
-      dataset_util.float_list_feature(proposals[:, 0].tolist()),
+          dataset_util.float_list_feature(proposals[:, 0].tolist()),
       'image/proposal/bbox/xmin':
-      dataset_util.float_list_feature(proposals[:, 1].tolist()),
+          dataset_util.float_list_feature(proposals[:, 1].tolist()),
       'image/proposal/bbox/ymax':
-      dataset_util.float_list_feature(proposals[:, 2].tolist()),
+          dataset_util.float_list_feature(proposals[:, 2].tolist()),
       'image/proposal/bbox/xmax':
-      dataset_util.float_list_feature(proposals[:, 3].tolist()),
+          dataset_util.float_list_feature(proposals[:, 3].tolist()),
   }
   if include_masks:
     feature_dict['image/object/mask'] = (
@@ -247,9 +247,10 @@ def create_tf_example(image,
   return key, example, num_annotations_skipped
 
 
-def _create_tf_record_from_coco_annotations(
-    annotations_file, caption_annotations_file, zip_file, output_path,
-    include_masks, num_shards, proposal_data_path):
+def _create_tf_record_from_coco_annotations(annotations_file,
+                                            caption_annotations_file, zip_file,
+                                            output_path, include_masks,
+                                            num_shards, proposal_data_path):
   """Loads COCO annotation json files and converts to tf.Record format.
 
   Args:

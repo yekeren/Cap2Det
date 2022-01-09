@@ -5,6 +5,7 @@ from __future__ import print_function
 import tensorflow as tf
 from google.protobuf import text_format
 
+import os
 from protos import pipeline_pb2
 from train import trainer
 
@@ -38,7 +39,14 @@ def _load_pipeline_proto(filename):
 
 
 def main(_):
-  pipeline_proto = _load_pipeline_proto(FLAGS.pipeline_proto)
+  if not os.path.isdir(FLAGS.model_dir):
+    tf.io.gfile.makedirs(FLAGS.model_dir)
+  saved_pipeline_proto = os.path.join(FLAGS.model_dir, 'pipeline.pbtxt')
+  if os.path.isfile(saved_pipeline_proto):
+    pipeline_proto = _load_pipeline_proto(saved_pipeline_proto)
+  else:
+    pipeline_proto = _load_pipeline_proto(FLAGS.pipeline_proto)
+    tf.io.gfile.copy(FLAGS.pipeline_proto, saved_pipeline_proto, overwrite=True)
 
   if FLAGS.model_dir:
     pipeline_proto.model_dir = FLAGS.model_dir

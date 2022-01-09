@@ -1,0 +1,134 @@
+train_reader {
+  cap2det_reader {
+    input_pattern: "raw-data-coco/coco17_train.record*"
+    interleave_cycle_length: 1
+    is_training: true
+    shuffle_buffer_size: 2000
+    map_num_parallel_calls: 10
+    prefetch_buffer_size: 500
+    batch_size: 2
+    image_resizer {
+      keep_aspect_ratio_resizer {
+        min_dimension: 1000
+      }
+    }
+    preprocess_options {
+      random_flip_left_right_prob: 0.5
+    }
+    max_num_proposals: 500
+    batch_resize_scale_value: 1.2
+    batch_resize_scale_value: 0.8
+    batch_resize_scale_value: 0.6
+    batch_resize_scale_value: 0.4
+  }
+}
+eval_reader {
+  cap2det_reader {
+    input_pattern: "raw-data-coco/coco17_val.record*"
+    interleave_cycle_length: 1
+    is_training: false
+    shuffle_buffer_size: 500
+    map_num_parallel_calls: 5
+    prefetch_buffer_size: 500
+    batch_size: 1
+    image_resizer {
+      keep_aspect_ratio_resizer {
+        min_dimension: 1000
+      }
+    }
+    max_num_proposals: 500
+  }
+}
+model {
+  [Cap2DetModel.ext] {
+    midn_loss_weight: 1.0
+    oicr_loss_weight: 0.5
+    frcnn_options {
+      feature_extractor {
+        type: 'faster_rcnn_inception_v2'
+        first_stage_features_stride: 16
+      }
+      initial_crop_size: 14
+      maxpool_kernel_size: 2
+      maxpool_stride: 2
+      dropout_keep_prob: 0.5
+      dropout_on_feature_map: false
+    }
+    fc_hyperparams {
+      op: FC
+      activation: RELU_6
+      regularizer {
+        l2_regularizer {
+          weight: 0.000001
+        }
+      }
+      initializer {
+        truncated_normal_initializer {
+          mean: 0.0
+          stddev: 0.01
+        }
+      }
+    }
+    oicr_iterations: 3
+    oicr_iou_threshold: 0.6
+    midn_post_processor {
+      score_thresh: 0.00001
+      iou_thresh: 0.4
+      max_size_per_class: 100
+      max_total_size: 300
+    }
+    oicr_post_processor {
+      score_thresh: 0.00001
+      iou_thresh: 0.3
+      max_size_per_class: 100
+      max_total_size: 300
+    }
+    eval_min_dimension: 1200
+    eval_min_dimension: 800
+    eval_min_dimension: 600
+    eval_min_dimension: 400
+    oicr_use_proba_r_given_c: true
+    label_extractor {
+      extend_match_extractor {
+        label_file: 'data/coco_label_synonyms.txt'
+      }
+    }
+  }
+}
+train_config {
+  max_steps: 500000
+  learning_rate: 0.01
+  learning_rate_decay {
+    decay_steps: 200000
+    decay_rate: 1.0
+    staircase: true
+  }
+  moving_average_decay: 0.0
+  optimizer {
+    adagrad {
+    }
+  }
+  gradient_multiplier {
+    scope: 'first_stage_feature_extraction'
+    multiplier: 0.0
+  }
+  gradient_multiplier {
+    scope: 'second_stage_feature_extraction'
+    multiplier: 1.0
+  }
+  gradient_multiplier {
+    scope: 'first_stage_feature_extraction/InceptionV2/Mixed_4e'
+    multiplier: 1.0
+  }
+  sync_replicas: false
+  save_summary_steps: 2000
+  save_checkpoints_steps: 2000
+  keep_checkpoint_max: 10
+  log_step_count_steps: 10
+}
+eval_config {
+  steps: 100
+  start_delay_secs: 0
+  throttle_secs: 60
+}
+

@@ -7,7 +7,7 @@ Cython==0.28.5
 gast==0.2.2
 grpcio==1.27.1
 h5py==2.8.0
-html5lib==0.9999999
+html5lib==0.99999999
 Keras-Applications==1.0.8
 Keras-Preprocessing==1.0.5
 kiwisolver==1.0.1
